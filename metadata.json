@@ -1,0 +1,6 @@
+{
+  "name": "Gerador de Grade de Horários",
+  "description": "Sistema completo para configuração de tempos, turmas, professores, regras parametrizáveis, geração automática de grade viável com detecção de janelas e resolução de conflitos, edição por arrastar e exportação em Excel, PDF e PNG.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

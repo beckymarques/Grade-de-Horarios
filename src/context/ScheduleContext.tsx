@@ -1,0 +1,779 @@
+import React, { createContext, useContext, useEffect, useState, useMemo, useCallback } from 'react';
+import {
+  ClassGroup,
+  DayOfWeek,
+  DayTimeConfig,
+  GridCell,
+  ScheduleRule,
+  Subject,
+  SubjectLoad,
+  Teacher,
+  UserSession,
+  WeekSchedule,
+  TimetableLayoutTheme,
+} from '../types';
+import { createInitialSampleWeek, createSecondarySampleWeek } from '../data/mockInitialData';
+import { calculateTimeSlots } from '../utils/timeCalculator';
+import { generateScheduleWithSolver, SolverResult } from '../utils/solver';
+import { validateSchedule, ValidationReport } from '../utils/rulesEngine';
+
+export type ActiveTab = 'grade' | 'tempos' | 'turmas' | 'professores' | 'cargas' | 'regras' | 'semanas';
+
+interface DragItemState {
+  day: DayOfWeek;
+  slotId: string;
+  classId: string;
+  cell: GridCell;
+}
+
+interface ScheduleContextType {
+  user: UserSession | null;
+  login: (email: string, name?: string) => void;
+  logout: () => void;
+
+  weeks: WeekSchedule[];
+  activeWeek: WeekSchedule | null;
+  activeWeekId: string;
+  setActiveWeekId: (id: string) => void;
+
+  activeTab: ActiveTab;
+  setActiveTab: (tab: ActiveTab) => void;
+
+  layoutTheme: TimetableLayoutTheme;
+  setLayoutTheme: (theme: TimetableLayoutTheme) => void;
+
+  selectedDay: DayOfWeek | 'ALL';
+  setSelectedDay: (day: DayOfWeek | 'ALL') => void;
+
+  validation: ValidationReport;
+
+  // Grid editing
+  updateCell: (day: DayOfWeek, slotId: string, classId: string, subjectId: string | null, teacherId: string | null, isLocked?: boolean) => void;
+  clearCell: (day: DayOfWeek, slotId: string, classId: string) => void;
+  toggleLockCell: (day: DayOfWeek, slotId: string, classId: string) => void;
+  swapCells: (source: { day: DayOfWeek; slotId: string; classId: string }, target: { day: DayOfWeek; slotId: string; classId: string }) => void;
+  moveCell: (source: { day: DayOfWeek; slotId: string; classId: string }, target: { day: DayOfWeek; slotId: string; classId: string }) => void;
+
+  // Drag & drop state
+  draggingCell: DragItemState | null;
+  setDraggingCell: (item: DragItemState | null) => void;
+
+  // Solver
+  generateGrid: () => SolverResult;
+  lastSolverResult: SolverResult | null;
+  setLastSolverResult: (res: SolverResult | null) => void;
+
+  // Week CRUD
+  createNewWeek: (title: string, dateRange: string) => WeekSchedule;
+  duplicateWeek: (sourceWeekId: string, newTitle: string, newDateRange: string) => WeekSchedule;
+  updateActiveWeek: (updated: Partial<WeekSchedule>) => void;
+  deleteWeek: (weekId: string) => void;
+
+  // Config helpers
+  updateTimeConfig: (config: DayTimeConfig) => void;
+  addClassGroup: (cls: ClassGroup) => void;
+  updateClassGroup: (cls: ClassGroup) => void;
+  deleteClassGroup: (classId: string) => void;
+  reorderClasses: (classes: ClassGroup[]) => void;
+
+  addTeacher: (teacher: Teacher) => void;
+  updateTeacher: (teacher: Teacher) => void;
+  deleteTeacher: (teacherId: string) => void;
+
+  addSubject: (subject: Subject) => void;
+  updateSubject: (subject: Subject) => void;
+  deleteSubject: (subjectId: string) => void;
+
+  updateLoad: (classId: string, subjectId: string, lessonsPerWeek: number, preferredTeacherId?: string) => void;
+
+  addRule: (rule: ScheduleRule) => void;
+  updateRule: (rule: ScheduleRule) => void;
+  deleteRule: (ruleId: string) => void;
+  toggleRule: (ruleId: string) => void;
+
+  // Undo / Redo
+  canUndo: boolean;
+  canRedo: boolean;
+  undo: () => void;
+  redo: () => void;
+
+  // Global backup
+  importData: (importedWeeks: WeekSchedule[]) => void;
+  resetAllToDefaults: () => void;
+}
+
+const ScheduleContext = createContext<ScheduleContextType | undefined>(undefined);
+
+const STORAGE_KEY_USER = 'prevest_schedule_user_v1';
+const STORAGE_KEY_WEEKS = 'prevest_schedule_weeks_v1';
+const STORAGE_KEY_ACTIVE_WEEK = 'prevest_schedule_active_week_id_v1';
+
+export const ScheduleProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  // User auth
+  const [user, setUser] = useState<UserSession | null>(() => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY_USER);
+      if (stored) return JSON.parse(stored);
+      // Default demo logged-in user for immediate usability
+      return {
+        id: 'user_coordenador',
+        name: 'Coordenação Pedagógica',
+        email: 'coordenacao@cursinho.com.br',
+        role: 'coordenador',
+        loggedAt: new Date().toISOString(),
+      };
+    } catch {
+      return null;
+    }
+  });
+
+  // Weeks list
+  const [weeks, setWeeks] = useState<WeekSchedule[]>(() => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY_WEEKS);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {
+      console.error('Failed to load weeks from storage', e);
+    }
+    // Seed with realistic default weeks
+    const primary = createInitialSampleWeek();
+    // Run solver to pre-populate primary week grid so it's fully populated on first open
+    const preSolved = generateScheduleWithSolver(
+      primary.activeDays,
+      primary.generatedSlots,
+      primary.classes,
+      primary.subjects,
+      primary.teachers,
+      primary.rules,
+      primary.loads,
+      {}
+    );
+    primary.grid = preSolved.grid;
+
+    const secondary = createSecondarySampleWeek();
+    secondary.grid = { ...preSolved.grid };
+
+    return [primary, secondary];
+  });
+
+  // Active week ID
+  const [activeWeekId, setActiveWeekIdState] = useState<string>(() => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY_ACTIVE_WEEK);
+      if (stored && weeks.some((w) => w.id === stored)) return stored;
+    } catch {}
+    return weeks[0]?.id || 'week_2026_33';
+  });
+
+  const setActiveWeekId = (id: string) => {
+    setActiveWeekIdState(id);
+    localStorage.setItem(STORAGE_KEY_ACTIVE_WEEK, id);
+  };
+
+  const [activeTab, setActiveTab] = useState<ActiveTab>('grade');
+
+  const [layoutTheme, setLayoutThemeState] = useState<TimetableLayoutTheme>(() => {
+    return (localStorage.getItem('prevest_layout_theme_v1') as TimetableLayoutTheme) || 'classic_table';
+  });
+
+  const setLayoutTheme = (theme: TimetableLayoutTheme) => {
+    setLayoutThemeState(theme);
+    localStorage.setItem('prevest_layout_theme_v1', theme);
+  };
+
+  const [selectedDay, setSelectedDay] = useState<DayOfWeek | 'ALL'>('SEG');
+  const [draggingCell, setDraggingCell] = useState<DragItemState | null>(null);
+  const [lastSolverResult, setLastSolverResult] = useState<SolverResult | null>(null);
+
+  // Undo / Redo history for active week grid
+  const [history, setHistory] = useState<Record<string, GridCell>[]>([{}]);
+  const [historyIndex, setHistoryIndex] = useState<number>(0);
+
+  const activeWeek = useMemo(() => {
+    return weeks.find((w) => w.id === activeWeekId) || weeks[0] || null;
+  }, [weeks, activeWeekId]);
+
+  // Keep selectedDay in sync if week has 1 day or activeDays changed
+  useEffect(() => {
+    if (activeWeek && activeWeek.activeDays && activeWeek.activeDays.length > 0) {
+      if (activeWeek.activeDays.length === 1) {
+        setSelectedDay(activeWeek.activeDays[0]);
+      } else if (selectedDay !== 'ALL' && !activeWeek.activeDays.includes(selectedDay)) {
+        setSelectedDay('ALL');
+      }
+    }
+  }, [activeWeek?.activeDays, selectedDay]);
+
+  // Persist to local storage
+  useEffect(() => {
+    if (user) {
+      localStorage.setItem(STORAGE_KEY_USER, JSON.stringify(user));
+    } else {
+      localStorage.removeItem(STORAGE_KEY_USER);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (weeks && weeks.length > 0) {
+      localStorage.setItem(STORAGE_KEY_WEEKS, JSON.stringify(weeks));
+    }
+  }, [weeks]);
+
+  // Live validation
+  const validation = useMemo<ValidationReport>(() => {
+    if (!activeWeek) {
+      return {
+        conflicts: [],
+        windowTutors: [],
+        loadSummary: [],
+        isValid: true,
+        totalErrors: 0,
+        totalWarnings: 0,
+      };
+    }
+    return validateSchedule(
+      activeWeek.grid,
+      activeWeek.activeDays,
+      activeWeek.generatedSlots,
+      activeWeek.classes,
+      activeWeek.subjects,
+      activeWeek.teachers,
+      activeWeek.rules,
+      activeWeek.loads
+    );
+  }, [activeWeek]);
+
+  // Auth actions
+  const login = (email: string, name: string = 'Coordenador Pedagógico') => {
+    const session: UserSession = {
+      id: `user_${Date.now()}`,
+      name,
+      email,
+      role: 'coordenador',
+      loggedAt: new Date().toISOString(),
+    };
+    setUser(session);
+  };
+
+  const logout = () => {
+    setUser(null);
+  };
+
+  // Week mutations
+  const updateActiveWeek = useCallback(
+    (updatedFields: Partial<WeekSchedule>) => {
+      if (!activeWeekId) return;
+      setWeeks((prev) =>
+        prev.map((w) => {
+          if (w.id === activeWeekId) {
+            return {
+              ...w,
+              ...updatedFields,
+              updatedAt: new Date().toISOString(),
+            };
+          }
+          return w;
+        })
+      );
+    },
+    [activeWeekId]
+  );
+
+  const createNewWeek = (title: string, dateRange: string): WeekSchedule => {
+    const base = createInitialSampleWeek();
+    const newId = `week_${Date.now()}`;
+    const newWeek: WeekSchedule = {
+      ...base,
+      id: newId,
+      title,
+      dateRange,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      grid: {},
+    };
+
+    setWeeks((prev) => [newWeek, ...prev]);
+    setActiveWeekId(newId);
+    setActiveTab('grade');
+    return newWeek;
+  };
+
+  const duplicateWeek = (sourceWeekId: string, newTitle: string, newDateRange: string): WeekSchedule => {
+    const source = weeks.find((w) => w.id === sourceWeekId) || activeWeek || createInitialSampleWeek();
+    const newId = `week_${Date.now()}`;
+    const duplicated: WeekSchedule = {
+      ...JSON.parse(JSON.stringify(source)),
+      id: newId,
+      title: newTitle,
+      dateRange: newDateRange,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    setWeeks((prev) => [duplicated, ...prev]);
+    setActiveWeekId(newId);
+    setActiveTab('grade');
+    return duplicated;
+  };
+
+  const deleteWeek = (weekId: string) => {
+    if (weeks.length <= 1) return; // Keep at least one
+    const remaining = weeks.filter((w) => w.id !== weekId);
+    setWeeks(remaining);
+    if (activeWeekId === weekId) {
+      setActiveWeekId(remaining[0].id);
+    }
+  };
+
+  // Grid Cell Operations with Undo/Redo
+  const pushGridHistory = (newGrid: Record<string, GridCell>) => {
+    setHistory((prev) => {
+      const sliced = prev.slice(0, historyIndex + 1);
+      return [...sliced, newGrid];
+    });
+    setHistoryIndex((prev) => prev + 1);
+  };
+
+  const updateCell = (
+    day: DayOfWeek,
+    slotId: string,
+    classId: string,
+    subjectId: string | null,
+    teacherId: string | null,
+    isLocked: boolean = false
+  ) => {
+    if (!activeWeek) return;
+    const key = `${day}_${slotId}_${classId}`;
+    const currentCell = activeWeek.grid[key];
+    const updatedCell: GridCell = {
+      id: currentCell?.id || `cell_${day}_${slotId}_${classId}`,
+      day,
+      slotId,
+      classId,
+      subjectId,
+      teacherId,
+      isLocked: isLocked !== undefined ? isLocked : currentCell?.isLocked || false,
+    };
+
+    const newGrid = {
+      ...activeWeek.grid,
+      [key]: updatedCell,
+    };
+
+    pushGridHistory(newGrid);
+    updateActiveWeek({ grid: newGrid });
+  };
+
+  const clearCell = (day: DayOfWeek, slotId: string, classId: string) => {
+    if (!activeWeek) return;
+    const key = `${day}_${slotId}_${classId}`;
+    const updatedCell: GridCell = {
+      id: `cell_${day}_${slotId}_${classId}`,
+      day,
+      slotId,
+      classId,
+      subjectId: null,
+      teacherId: null,
+      isLocked: false,
+    };
+
+    const newGrid = {
+      ...activeWeek.grid,
+      [key]: updatedCell,
+    };
+
+    pushGridHistory(newGrid);
+    updateActiveWeek({ grid: newGrid });
+  };
+
+  const toggleLockCell = (day: DayOfWeek, slotId: string, classId: string) => {
+    if (!activeWeek) return;
+    const key = `${day}_${slotId}_${classId}`;
+    const cell = activeWeek.grid[key];
+    if (!cell || !cell.subjectId) return;
+
+    const newGrid = {
+      ...activeWeek.grid,
+      [key]: {
+        ...cell,
+        isLocked: !cell.isLocked,
+      },
+    };
+
+    updateActiveWeek({ grid: newGrid });
+  };
+
+  const swapCells = (
+    source: { day: DayOfWeek; slotId: string; classId: string },
+    target: { day: DayOfWeek; slotId: string; classId: string }
+  ) => {
+    if (!activeWeek) return;
+    const sourceKey = `${source.day}_${source.slotId}_${source.classId}`;
+    const targetKey = `${target.day}_${target.slotId}_${target.classId}`;
+
+    const sourceCell = activeWeek.grid[sourceKey] || {
+      id: `cell_${sourceKey}`,
+      day: source.day,
+      slotId: source.slotId,
+      classId: source.classId,
+      subjectId: null,
+      teacherId: null,
+      isLocked: false,
+    };
+
+    const targetCell = activeWeek.grid[targetKey] || {
+      id: `cell_${targetKey}`,
+      day: target.day,
+      slotId: target.slotId,
+      classId: target.classId,
+      subjectId: null,
+      teacherId: null,
+      isLocked: false,
+    };
+
+    const newGrid = {
+      ...activeWeek.grid,
+      [sourceKey]: {
+        ...sourceCell,
+        subjectId: targetCell.subjectId,
+        teacherId: targetCell.teacherId,
+        isLocked: targetCell.isLocked,
+      },
+      [targetKey]: {
+        ...targetCell,
+        subjectId: sourceCell.subjectId,
+        teacherId: sourceCell.teacherId,
+        isLocked: sourceCell.isLocked,
+      },
+    };
+
+    pushGridHistory(newGrid);
+    updateActiveWeek({ grid: newGrid });
+  };
+
+  const moveCell = (
+    source: { day: DayOfWeek; slotId: string; classId: string },
+    target: { day: DayOfWeek; slotId: string; classId: string }
+  ) => {
+    if (!activeWeek) return;
+    const sourceKey = `${source.day}_${source.slotId}_${source.classId}`;
+    const targetKey = `${target.day}_${target.slotId}_${target.classId}`;
+
+    const sourceCell = activeWeek.grid[sourceKey];
+    if (!sourceCell || !sourceCell.subjectId) return;
+
+    const newGrid = {
+      ...activeWeek.grid,
+      [sourceKey]: {
+        ...sourceCell,
+        subjectId: null,
+        teacherId: null,
+        isLocked: false,
+      },
+      [targetKey]: {
+        id: `cell_${targetKey}`,
+        day: target.day,
+        slotId: target.slotId,
+        classId: target.classId,
+        subjectId: sourceCell.subjectId,
+        teacherId: sourceCell.teacherId,
+        isLocked: false,
+      },
+    };
+
+    pushGridHistory(newGrid);
+    updateActiveWeek({ grid: newGrid });
+  };
+
+  const undo = () => {
+    if (historyIndex > 0) {
+      const prevIndex = historyIndex - 1;
+      setHistoryIndex(prevIndex);
+      const prevGrid = history[prevIndex];
+      if (prevGrid) {
+        updateActiveWeek({ grid: prevGrid });
+      }
+    }
+  };
+
+  const redo = () => {
+    if (historyIndex < history.length - 1) {
+      const nextIndex = historyIndex + 1;
+      setHistoryIndex(nextIndex);
+      const nextGrid = history[nextIndex];
+      if (nextGrid) {
+        updateActiveWeek({ grid: nextGrid });
+      }
+    }
+  };
+
+  // Solver execution
+  const generateGrid = (): SolverResult => {
+    if (!activeWeek) {
+      return {
+        success: false,
+        grid: {},
+        allocatedCount: 0,
+        totalTargetCount: 0,
+        violations: ['Sem semana ativa'],
+        diagnostics: ['Nenhuma semana selecionada'],
+        suggestedRelaxations: [],
+        durationMs: 0,
+      };
+    }
+
+    const result = generateScheduleWithSolver(
+      activeWeek.activeDays,
+      activeWeek.generatedSlots,
+      activeWeek.classes,
+      activeWeek.subjects,
+      activeWeek.teachers,
+      activeWeek.rules,
+      activeWeek.loads,
+      activeWeek.grid
+    );
+
+    setLastSolverResult(result);
+    if (result.success || Object.keys(result.grid).length > 0) {
+      pushGridHistory(result.grid);
+      updateActiveWeek({ grid: result.grid });
+    }
+
+    return result;
+  };
+
+  // Configuration helper functions
+  const updateTimeConfig = (config: DayTimeConfig) => {
+    if (!activeWeek) return;
+    const timeCalc = calculateTimeSlots(config);
+    updateActiveWeek({
+      timeConfig: config,
+      generatedSlots: timeCalc.slots,
+    });
+  };
+
+  const addClassGroup = (cls: ClassGroup) => {
+    if (!activeWeek) return;
+    updateActiveWeek({
+      classes: [...activeWeek.classes, cls],
+    });
+  };
+
+  const updateClassGroup = (cls: ClassGroup) => {
+    if (!activeWeek) return;
+    updateActiveWeek({
+      classes: activeWeek.classes.map((c) => (c.id === cls.id ? cls : c)),
+    });
+  };
+
+  const deleteClassGroup = (classId: string) => {
+    if (!activeWeek) return;
+    updateActiveWeek({
+      classes: activeWeek.classes.filter((c) => c.id !== classId),
+      loads: activeWeek.loads.filter((l) => l.classId !== classId),
+    });
+  };
+
+  const reorderClasses = (reordered: ClassGroup[]) => {
+    if (!activeWeek) return;
+    updateActiveWeek({
+      classes: reordered,
+    });
+  };
+
+  const addTeacher = (teacher: Teacher) => {
+    if (!activeWeek) return;
+    updateActiveWeek({
+      teachers: [...activeWeek.teachers, teacher],
+    });
+  };
+
+  const updateTeacher = (teacher: Teacher) => {
+    if (!activeWeek) return;
+    updateActiveWeek({
+      teachers: activeWeek.teachers.map((t) => (t.id === teacher.id ? teacher : t)),
+    });
+  };
+
+  const deleteTeacher = (teacherId: string) => {
+    if (!activeWeek) return;
+    updateActiveWeek({
+      teachers: activeWeek.teachers.filter((t) => t.id !== teacherId),
+    });
+  };
+
+  const addSubject = (subject: Subject) => {
+    if (!activeWeek) return;
+    updateActiveWeek({
+      subjects: [...activeWeek.subjects, subject],
+    });
+  };
+
+  const updateSubject = (subject: Subject) => {
+    if (!activeWeek) return;
+    updateActiveWeek({
+      subjects: activeWeek.subjects.map((s) => (s.id === subject.id ? subject : s)),
+    });
+  };
+
+  const deleteSubject = (subjectId: string) => {
+    if (!activeWeek) return;
+    updateActiveWeek({
+      subjects: activeWeek.subjects.filter((s) => s.id !== subjectId),
+      loads: activeWeek.loads.filter((l) => l.subjectId !== subjectId),
+    });
+  };
+
+  const updateLoad = (classId: string, subjectId: string, lessonsPerWeek: number, preferredTeacherId?: string) => {
+    if (!activeWeek) return;
+    const existing = activeWeek.loads.find((l) => l.classId === classId && l.subjectId === subjectId);
+    let newLoads: SubjectLoad[];
+
+    if (existing) {
+      if (lessonsPerWeek <= 0) {
+        newLoads = activeWeek.loads.filter((l) => l.id !== existing.id);
+      } else {
+        newLoads = activeWeek.loads.map((l) =>
+          l.id === existing.id ? { ...l, lessonsPerWeek, preferredTeacherId } : l
+        );
+      }
+    } else if (lessonsPerWeek > 0) {
+      newLoads = [
+        ...activeWeek.loads,
+        {
+          id: `load_${classId}_${subjectId}`,
+          classId,
+          subjectId,
+          lessonsPerWeek,
+          preferredTeacherId,
+        },
+      ];
+    } else {
+      newLoads = activeWeek.loads;
+    }
+
+    updateActiveWeek({ loads: newLoads });
+  };
+
+  const addRule = (rule: ScheduleRule) => {
+    if (!activeWeek) return;
+    updateActiveWeek({
+      rules: [...activeWeek.rules, rule],
+    });
+  };
+
+  const updateRule = (rule: ScheduleRule) => {
+    if (!activeWeek) return;
+    updateActiveWeek({
+      rules: activeWeek.rules.map((r) => (r.id === rule.id ? rule : r)),
+    });
+  };
+
+  const deleteRule = (ruleId: string) => {
+    if (!activeWeek) return;
+    updateActiveWeek({
+      rules: activeWeek.rules.filter((r) => r.id !== ruleId),
+    });
+  };
+
+  const toggleRule = (ruleId: string) => {
+    if (!activeWeek) return;
+    updateActiveWeek({
+      rules: activeWeek.rules.map((r) => (r.id === ruleId ? { ...r, isEnabled: !r.isEnabled } : r)),
+    });
+  };
+
+  const importData = (importedWeeks: WeekSchedule[]) => {
+    if (Array.isArray(importedWeeks) && importedWeeks.length > 0) {
+      setWeeks(importedWeeks);
+      setActiveWeekId(importedWeeks[0].id);
+    }
+  };
+
+  const resetAllToDefaults = () => {
+    const sample = createInitialSampleWeek();
+    const preSolved = generateScheduleWithSolver(
+      sample.activeDays,
+      sample.generatedSlots,
+      sample.classes,
+      sample.subjects,
+      sample.teachers,
+      sample.rules,
+      sample.loads,
+      {}
+    );
+    sample.grid = preSolved.grid;
+    setWeeks([sample]);
+    setActiveWeekId(sample.id);
+  };
+
+  return (
+    <ScheduleContext.Provider
+      value={{
+        user,
+        login,
+        logout,
+        weeks,
+        activeWeek,
+        activeWeekId,
+        setActiveWeekId,
+        activeTab,
+        setActiveTab,
+        layoutTheme,
+        setLayoutTheme,
+        selectedDay,
+        setSelectedDay,
+        validation,
+        updateCell,
+        clearCell,
+        toggleLockCell,
+        swapCells,
+        moveCell,
+        draggingCell,
+        setDraggingCell,
+        generateGrid,
+        lastSolverResult,
+        setLastSolverResult,
+        createNewWeek,
+        duplicateWeek,
+        updateActiveWeek,
+        deleteWeek,
+        updateTimeConfig,
+        addClassGroup,
+        updateClassGroup,
+        deleteClassGroup,
+        reorderClasses,
+        addTeacher,
+        updateTeacher,
+        deleteTeacher,
+        addSubject,
+        updateSubject,
+        deleteSubject,
+        updateLoad,
+        addRule,
+        updateRule,
+        deleteRule,
+        toggleRule,
+        canUndo: historyIndex > 0,
+        canRedo: historyIndex < history.length - 1,
+        undo,
+        redo,
+        importData,
+        resetAllToDefaults,
+      }}
+    >
+      {children}
+    </ScheduleContext.Provider>
+  );
+};
+
+export const useSchedule = () => {
+  const context = useContext(ScheduleContext);
+  if (!context) {
+    throw new Error('useSchedule must be used within a ScheduleProvider');
+  }
+  return context;
+};
