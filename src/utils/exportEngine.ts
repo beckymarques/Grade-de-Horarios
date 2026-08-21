@@ -1,64 +1,390 @@
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
+import JSZip from 'jszip';
 import {
   DayOfWeek,
   DAYS_OF_WEEK,
   GridCell,
   TimeSlot,
   WeekSchedule,
+  getDisplayClasses,
 } from '../types';
-import { validateSchedule } from './rulesEngine';
+import { validateSchedule, resolveCellForClass } from './rulesEngine';
 
-export function exportScheduleToExcel(week: WeekSchedule) {
-  const { title, activeDays, generatedSlots, classes, subjects, teachers, loads, rules, grid } = week;
+export interface ExportFilterOptions {
+  selectedDays?: DayOfWeek[];
+  separateZip?: boolean;
+}
+
+/**
+ * Sanitizes all unsupported CSS colors (oklab, oklch, color-mix, lab, lch) from the cloned document
+ * to prevent html2canvas color parsing crashes.
+ */
+function sanitizeUnsupportedCssColors(clonedDoc: Document) {
+  try {
+    const convertColor = (colorStr: string): string => {
+      if (!colorStr) return colorStr;
+      if (
+        !colorStr.includes('oklch') &&
+        !colorStr.includes('oklab') &&
+        !colorStr.includes('color-mix') &&
+        !colorStr.includes('lab(') &&
+        !colorStr.includes('lch(')
+      ) {
+        return colorStr;
+      }
+
+      return colorStr.replace(
+        /(?:oklch|oklab|color-mix|lab|lch)\([^)]+\)/gi,
+        '#6366f1'
+      );
+    };
+
+    const styleTags = clonedDoc.querySelectorAll('style');
+    styleTags.forEach((styleTag) => {
+      if (styleTag.textContent) {
+        styleTag.textContent = convertColor(styleTag.textContent);
+      }
+    });
+
+    const allElements = clonedDoc.querySelectorAll('*');
+    allElements.forEach((el) => {
+      const htmlEl = el as HTMLElement;
+      if (htmlEl.style) {
+        const styleAttr = htmlEl.getAttribute('style');
+        if (styleAttr) {
+          htmlEl.setAttribute('style', convertColor(styleAttr));
+        }
+      }
+    });
+  } catch (e) {
+    console.warn('Error during CSS color sanitization for html2canvas:', e);
+  }
+}
+
+/**
+ * Creates a pristine, fully-styled, standalone HTML element for exporting
+ * specific or all active days of the schedule.
+ */
+function createExportableScheduleElement(
+  week: WeekSchedule,
+  daysToRender?: DayOfWeek[]
+): HTMLElement {
+  const { title, dateRange, activeDays, generatedSlots, classes, subjects, teachers, loads, rules, grid } = week;
+  const targetDays = daysToRender && daysToRender.length > 0 ? daysToRender : activeDays;
   const validation = validateSchedule(grid, activeDays, generatedSlots, classes, subjects, teachers, rules, loads);
-
   const subjectMap = new Map(subjects.map((s) => [s.id, s]));
   const teacherMap = new Map(teachers.map((t) => [t.id, t]));
+  const displayClasses = getDisplayClasses(classes);
 
-  // Build Sheet 1: Grade Semanal
+  const container = document.createElement('div');
+  container.id = 'clean_exportable_schedule_root';
+  container.style.position = 'fixed';
+  container.style.top = '0';
+  container.style.left = '-9999px';
+  container.style.width = '1400px';
+  container.style.backgroundColor = '#ffffff';
+  container.style.color = '#0f172a';
+  container.style.fontFamily = 'Arial, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  container.style.padding = '24px 28px';
+  container.style.boxSizing = 'border-box';
+  container.style.zIndex = '-9999';
+
+  // Master Document Header
+  const headerDiv = document.createElement('div');
+  headerDiv.style.display = 'flex';
+  headerDiv.style.justifyContent = 'space-between';
+  headerDiv.style.alignItems = 'center';
+  headerDiv.style.borderBottom = '2px solid #4338ca';
+  headerDiv.style.paddingBottom = '14px';
+  headerDiv.style.marginBottom = '20px';
+
+  headerDiv.innerHTML = `
+    <div>
+      <div style="font-size: 20px; font-weight: 800; color: #1e1b4b; text-transform: uppercase; letter-spacing: -0.5px;">
+        ${title}
+      </div>
+      <div style="font-size: 12px; color: #475569; margin-top: 3px; font-weight: 500;">
+        Período: <strong style="color: #0f172a;">${dateRange || 'Semana Regular'}</strong> • Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+      </div>
+    </div>
+    <div style="text-align: right; font-size: 11px; color: #64748b;">
+      <span style="display: inline-block; background-color: #e0e7ff; color: #3730a3; padding: 4px 10px; border-radius: 6px; font-weight: 700; margin-right: 6px;">
+        ${displayClasses.length} Turmas
+      </span>
+      <span style="display: inline-block; background-color: #f1f5f9; color: #334155; padding: 4px 10px; border-radius: 6px; font-weight: 700;">
+        ${generatedSlots.length} Tempos/Dia
+      </span>
+    </div>
+  `;
+  container.appendChild(headerDiv);
+
+  // Render Each Active Day Table
+  for (const dayKey of targetDays) {
+    const dayMeta = DAYS_OF_WEEK.find((d) => d.key === dayKey);
+    const dayLabel = dayMeta ? dayMeta.label.toUpperCase() : dayKey;
+
+    const daySection = document.createElement('div');
+    daySection.style.marginBottom = '28px';
+
+    // Day Header Banner
+    const dayBanner = document.createElement('div');
+    dayBanner.style.backgroundColor = '#1e293b';
+    dayBanner.style.color = '#ffffff';
+    dayBanner.style.padding = '8px 14px';
+    dayBanner.style.fontSize = '12px';
+    dayBanner.style.fontWeight = '700';
+    dayBanner.style.letterSpacing = '0.5px';
+    dayBanner.style.borderRadius = '8px 8px 0 0';
+    dayBanner.style.display = 'flex';
+    dayBanner.style.justifyContent = 'space-between';
+    dayBanner.innerHTML = `
+      <span>📅 ${dayLabel}</span>
+      <span style="color: #cbd5e1; font-weight: 400; font-size: 11px;">Grade de Horários & Aulas</span>
+    `;
+    daySection.appendChild(dayBanner);
+
+    // Table
+    const table = document.createElement('table');
+    table.style.width = '100%';
+    table.style.borderCollapse = 'collapse';
+    table.style.fontSize = '11px';
+    table.style.backgroundColor = '#ffffff';
+    table.style.border = '1px solid #cbd5e1';
+
+    // Thead
+    const thead = document.createElement('thead');
+    const headerTr = document.createElement('tr');
+    headerTr.style.backgroundColor = '#f8fafc';
+
+    // Time Col Header
+    const thTime = document.createElement('th');
+    thTime.style.width = '110px';
+    thTime.style.padding = '8px 6px';
+    thTime.style.border = '1px solid #cbd5e1';
+    thTime.style.color = '#334155';
+    thTime.style.fontWeight = '700';
+    thTime.style.textAlign = 'center';
+    thTime.textContent = 'Horário / Tempo';
+    headerTr.appendChild(thTime);
+
+    // Class Columns
+    for (const cls of displayClasses) {
+      const thCls = document.createElement('th');
+      thCls.style.padding = '8px 8px';
+      thCls.style.border = '1px solid #cbd5e1';
+      thCls.style.borderTop = `3px solid ${cls.color || '#4f46e5'}`;
+      thCls.style.backgroundColor = '#f8fafc';
+      thCls.style.color = '#0f172a';
+      thCls.style.fontWeight = '700';
+      thCls.style.textAlign = 'center';
+      thCls.innerHTML = `
+        <div style="font-size: 11px;">${cls.name}</div>
+        ${cls.defaultRoom ? `<div style="font-size: 9px; color: #64748b; font-weight: 400;">${cls.defaultRoom}</div>` : ''}
+      `;
+      headerTr.appendChild(thCls);
+    }
+
+    // Window Tutors Column Header
+    const thTutors = document.createElement('th');
+    thTutors.style.width = '200px';
+    thTutors.style.padding = '8px 6px';
+    thTutors.style.border = '1px solid #cbd5e1';
+    thTutors.style.backgroundColor = '#fef3c7';
+    thTutors.style.color = '#92400e';
+    thTutors.style.fontWeight = '700';
+    thTutors.style.textAlign = 'center';
+    thTutors.textContent = 'Tutores em Janela';
+    headerTr.appendChild(thTutors);
+
+    thead.appendChild(headerTr);
+    table.appendChild(thead);
+
+    // Tbody
+    const tbody = document.createElement('tbody');
+
+    for (const slot of generatedSlots) {
+      const tr = document.createElement('tr');
+      const isInterval = slot.type === 'interval' || slot.type === 'event';
+
+      if (isInterval) {
+        tr.style.backgroundColor = '#f1f5f9';
+
+        const tdTime = document.createElement('td');
+        tdTime.style.padding = '6px 4px';
+        tdTime.style.border = '1px solid #e2e8f0';
+        tdTime.style.textAlign = 'center';
+        tdTime.style.fontWeight = '600';
+        tdTime.style.color = '#475569';
+        tdTime.style.fontSize = '10px';
+        tdTime.innerHTML = `<div>${slot.startTime} - ${slot.endTime}</div><div style="font-size: 9px; color: #64748b;">${slot.name}</div>`;
+        tr.appendChild(tdTime);
+
+        const tdInterval = document.createElement('td');
+        tdInterval.colSpan = displayClasses.length;
+        tdInterval.style.padding = '6px 10px';
+        tdInterval.style.border = '1px solid #cbd5e1';
+        tdInterval.style.textAlign = 'center';
+        tdInterval.style.fontWeight = '700';
+        tdInterval.style.color = '#475569';
+        tdInterval.style.fontSize = '11px';
+        tdInterval.style.backgroundColor = '#f1f5f9';
+        tdInterval.style.letterSpacing = '0.5px';
+        tdInterval.textContent = `— ${slot.name.toUpperCase()} (${slot.durationMinutes} MIN) —`;
+        tr.appendChild(tdInterval);
+
+        const tdTutor = document.createElement('td');
+        tdTutor.style.padding = '6px';
+        tdTutor.style.border = '1px solid #e2e8f0';
+        tdTutor.style.textAlign = 'center';
+        tdTutor.style.color = '#94a3b8';
+        tdTutor.textContent = '—';
+        tr.appendChild(tdTutor);
+      } else {
+        const tdTime = document.createElement('td');
+        tdTime.style.padding = '8px 4px';
+        tdTime.style.border = '1px solid #e2e8f0';
+        tdTime.style.textAlign = 'center';
+        tdTime.style.backgroundColor = '#f8fafc';
+        tdTime.innerHTML = `
+          <div style="font-weight: 700; color: #1e293b; font-size: 11px;">${slot.startTime} - ${slot.endTime}</div>
+          <div style="font-size: 10px; color: #64748b; margin-top: 1px;">${slot.name}</div>
+        `;
+        tr.appendChild(tdTime);
+
+        for (const cls of displayClasses) {
+          const tdCell = document.createElement('td');
+          tdCell.style.padding = '6px 8px';
+          tdCell.style.border = '1px solid #e2e8f0';
+          tdCell.style.verticalAlign = 'top';
+
+          const cell = resolveCellForClass(grid, dayKey, slot.id, cls.id, classes);
+
+          if (cell && cell.subjectId) {
+            const sub = subjectMap.get(cell.subjectId);
+            const teacher = cell.teacherId ? teacherMap.get(cell.teacherId) : null;
+            const subName = sub ? sub.name : 'Disciplina';
+            const subColor = sub?.color || '#4f46e5';
+
+            tdCell.innerHTML = `
+              <div style="background-color: #f8fafc; border-left: 3px solid ${subColor}; padding: 4px 6px; border-radius: 4px; border-top: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0;">
+                <div style="font-weight: 700; color: #0f172a; font-size: 11px; line-height: 1.2;">
+                  ${subName}
+                </div>
+                ${
+                  teacher
+                    ? `<div style="font-size: 10px; color: #4338ca; font-weight: 600; margin-top: 2px;">
+                        Prof. ${teacher.shortName || teacher.name}
+                       </div>`
+                    : ''
+                }
+              </div>
+            `;
+          } else {
+            tdCell.innerHTML = `<div style="text-align: center; color: #cbd5e1; font-size: 12px; padding: 6px;">—</div>`;
+          }
+          tr.appendChild(tdCell);
+        }
+
+        const tdTutors = document.createElement('td');
+        tdTutors.style.padding = '6px 8px';
+        tdTutors.style.border = '1px solid #e2e8f0';
+        tdTutors.style.backgroundColor = '#fffbeb';
+        tdTutors.style.verticalAlign = 'top';
+
+        const tutorsInSlot = validation.windowTutors
+          .filter((w) => w.day === dayKey && w.slotId === slot.id)
+          .map((w) => w.teacherName);
+
+        if (tutorsInSlot.length > 0) {
+          tdTutors.innerHTML = `
+            <div style="display: flex; flex-wrap: wrap; gap: 3px;">
+              ${tutorsInSlot
+                .map(
+                  (name) =>
+                    `<span style="background-color: #fde68a; color: #92400e; font-size: 9px; font-weight: 700; padding: 2px 5px; border-radius: 4px; border: 1px solid #fcd34d;">
+                      ${name}
+                    </span>`
+                )
+                .join('')}
+            </div>
+          `;
+        } else {
+          tdTutors.innerHTML = `<div style="text-align: center; color: #b45309; font-size: 10px; font-style: italic;">Nenhum tutor</div>`;
+        }
+        tr.appendChild(tdTutors);
+      }
+
+      tbody.appendChild(tr);
+    }
+
+    table.appendChild(tbody);
+    daySection.appendChild(table);
+    container.appendChild(daySection);
+  }
+
+  // Footer Branding
+  const footerDiv = document.createElement('div');
+  footerDiv.style.borderTop = '1px solid #e2e8f0';
+  footerDiv.style.paddingTop = '10px';
+  footerDiv.style.marginTop = '10px';
+  footerDiv.style.fontSize = '10px';
+  footerDiv.style.color = '#94a3b8';
+  footerDiv.style.display = 'flex';
+  footerDiv.style.justifyContent = 'space-between';
+  footerDiv.innerHTML = `
+    <span>Sistema de Gestão de Horários — Pré-Vestibular</span>
+    <span>Documento Oficial de Horários</span>
+  `;
+  container.appendChild(footerDiv);
+
+  return container;
+}
+
+/**
+ * Builds an XLSX workbook for a specific list of days
+ */
+function buildWorkbookForDays(week: WeekSchedule, days: DayOfWeek[]): XLSX.WorkBook {
+  const { title, activeDays, generatedSlots, classes, subjects, teachers, loads, rules, grid } = week;
+  const validation = validateSchedule(grid, activeDays, generatedSlots, classes, subjects, teachers, rules, loads);
+  const subjectMap = new Map(subjects.map((s) => [s.id, s]));
+  const teacherMap = new Map(teachers.map((t) => [t.id, t]));
+  const displayClasses = getDisplayClasses(classes);
+
   const rows: any[][] = [];
-
-  // Title header
   rows.push([title.toUpperCase()]);
   rows.push([`Período: ${week.dateRange}`, `Gerado em: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}`]);
-  rows.push([]); // blank line
+  rows.push([]);
 
-  for (const dayKey of activeDays) {
+  for (const dayKey of days) {
     const dayMeta = DAYS_OF_WEEK.find((d) => d.key === dayKey);
     const dayTitle = dayMeta ? dayMeta.label.toUpperCase() : dayKey;
 
-    // Day Header Banner
     rows.push([`=== ${dayTitle} ===`]);
 
-    // Table Header
     const headerRow = ['Horário', 'Tempo / Atividade'];
-    for (const cls of classes) {
+    for (const cls of displayClasses) {
       headerRow.push(cls.name);
     }
     headerRow.push('Tutores em Janela (Disponíveis)');
     headerRow.push('Avisos & Validações');
     rows.push(headerRow);
 
-    // Rows for each time slot
     for (const slot of generatedSlots) {
       const timeStr = `${slot.startTime} - ${slot.endTime}`;
       const rowData: string[] = [timeStr, slot.name];
 
       if (slot.type === 'interval' || slot.type === 'event') {
-        // Interval or lunch event
         const bannerText = `--- ${slot.name.toUpperCase()} (${slot.durationMinutes} min) ---`;
-        for (let i = 0; i < classes.length; i++) {
+        for (let i = 0; i < displayClasses.length; i++) {
           rowData.push(bannerText);
         }
         rowData.push('-');
         rowData.push('✓');
       } else {
-        // Lesson slot
-        for (const cls of classes) {
-          const key = `${dayKey}_${slot.id}_${cls.id}`;
-          const cell = grid[key];
+        for (const cls of displayClasses) {
+          const cell = resolveCellForClass(grid, dayKey, slot.id, cls.id, classes);
           if (cell && cell.subjectId) {
             const sub = subjectMap.get(cell.subjectId);
             const tea = cell.teacherId ? teacherMap.get(cell.teacherId) : null;
@@ -70,13 +396,11 @@ export function exportScheduleToExcel(week: WeekSchedule) {
           }
         }
 
-        // Window tutors column for this slot
         const tutorsInSlot = validation.windowTutors
           .filter((w) => w.day === dayKey && w.slotId === slot.id)
           .map((w) => w.teacherName);
         rowData.push(tutorsInSlot.length > 0 ? tutorsInSlot.join(', ') : 'Nenhum');
 
-        // Conflicts in this slot
         const slotConflicts = validation.conflicts.filter(
           (c) => c.day === dayKey && c.slotId === slot.id
         );
@@ -91,10 +415,21 @@ export function exportScheduleToExcel(week: WeekSchedule) {
       rows.push(rowData);
     }
 
-    rows.push([]); // blank separator
+    rows.push([]);
   }
 
-  // Build Sheet 2: Carga Horária e Cumprimento
+  const wb = XLSX.utils.book_new();
+  const wsGrade = XLSX.utils.aoa_to_sheet(rows);
+  wsGrade['!cols'] = [
+    { wch: 16 },
+    { wch: 20 },
+    ...displayClasses.map(() => ({ wch: 26 })),
+    { wch: 30 },
+    { wch: 40 },
+  ];
+  XLSX.utils.book_append_sheet(wb, wsGrade, 'Grade Semanal');
+
+  // Sheet 2: Carga Horária
   const loadRows: any[][] = [];
   loadRows.push(['RELATÓRIO DE CARGA HORÁRIA SEMANAL']);
   loadRows.push(['Turma', 'Disciplina', 'Meta Semanal', 'Alocado na Grade', 'Saldo', 'Status']);
@@ -113,95 +448,338 @@ export function exportScheduleToExcel(week: WeekSchedule) {
       statusText,
     ]);
   }
-
-  // Build Sheet 3: Professores e Regras
-  const teacherRows: any[][] = [];
-  teacherRows.push(['CORPO DOCENTE E RESTRIÇÕES']);
-  teacherRows.push(['Nome', 'Nome Curto', 'Disciplinas', 'Sala Compartilhada', 'Faltas Registradas', 'Max Aulas Seguidas']);
-
-  for (const t of teachers) {
-    const subs = t.subjectIds.map((sid) => subjectMap.get(sid)?.shortName || sid).join(', ');
-    const absences = t.absences && t.absences.length > 0
-      ? t.absences.map((a) => `${a.day} ${a.allDay ? '(Dia todo)' : ''}`).join('; ')
-      : 'Nenhuma';
-
-    teacherRows.push([
-      t.name,
-      t.shortName,
-      subs,
-      t.sharedRoomId || 'Nenhuma',
-      absences,
-      t.maxConsecutiveLessons || 3,
-    ]);
-  }
-
-  // Create workbook
-  const wb = XLSX.utils.book_new();
-
-  const wsGrade = XLSX.utils.aoa_to_sheet(rows);
-  // Auto-width columns
-  wsGrade['!cols'] = [
-    { wch: 16 }, // Horário
-    { wch: 20 }, // Tempo
-    ...classes.map(() => ({ wch: 26 })), // Turmas
-    { wch: 30 }, // Tutores em janela
-    { wch: 40 }, // Conflitos
-  ];
-  XLSX.utils.book_append_sheet(wb, wsGrade, 'Grade Semanal');
-
   const wsLoads = XLSX.utils.aoa_to_sheet(loadRows);
   wsLoads['!cols'] = [{ wch: 16 }, { wch: 26 }, { wch: 14 }, { wch: 16 }, { wch: 10 }, { wch: 25 }];
   XLSX.utils.book_append_sheet(wb, wsLoads, 'Carga Horária');
 
-  const wsTeachers = XLSX.utils.aoa_to_sheet(teacherRows);
-  wsTeachers['!cols'] = [{ wch: 24 }, { wch: 14 }, { wch: 26 }, { wch: 20 }, { wch: 26 }, { wch: 16 }];
-  XLSX.utils.book_append_sheet(wb, wsTeachers, 'Professores');
+  return wb;
+}
 
-  // Trigger file download
+export async function exportScheduleToExcel(
+  week: WeekSchedule,
+  options?: ExportFilterOptions
+) {
+  const targetDays = options?.selectedDays && options.selectedDays.length > 0 ? options.selectedDays : week.activeDays;
+
+  if (options?.separateZip) {
+    const zip = new JSZip();
+    for (const dayKey of targetDays) {
+      const dayMeta = DAYS_OF_WEEK.find((d) => d.key === dayKey);
+      const dayLabel = dayMeta ? dayMeta.label.replace(/\s+/g, '_') : dayKey;
+      const wb = buildWorkbookForDays(week, [dayKey]);
+      const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      zip.file(`Grade_${dayLabel}.xlsx`, wbout);
+    }
+    const zipBlob = await zip.generateAsync({ type: 'blob' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(zipBlob);
+    link.download = `Grade_${week.title.replace(/[^a-zA-Z0-9_-]/g, '_')}_Planilhas_Por_Dia.zip`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    return;
+  }
+
+  const wb = buildWorkbookForDays(week, targetDays);
   const safeFilename = `Grade_${week.title.replace(/[^a-zA-Z0-9_-]/g, '_')}.xlsx`;
   XLSX.writeFile(wb, safeFilename);
 }
 
-export async function exportScheduleToPNG(elementId: string, filename: string = 'grade_semanal.png') {
-  const element = document.getElementById(elementId);
-  if (!element) return;
+export async function exportScheduleToPNG(
+  weekOrElementId: WeekSchedule | string,
+  filenameOrOptions?: string | ExportFilterOptions
+) {
+  let options: ExportFilterOptions = {};
+  let customFilename = '';
 
-  const canvas = await html2canvas(element, {
-    scale: 2,
-    useCORS: true,
-    backgroundColor: '#ffffff',
-    logging: false,
-  });
+  if (typeof filenameOrOptions === 'string') {
+    customFilename = filenameOrOptions;
+  } else if (typeof filenameOrOptions === 'object') {
+    options = filenameOrOptions;
+  }
 
-  const link = document.createElement('a');
-  link.download = filename;
-  link.href = canvas.toDataURL('image/png');
-  link.click();
+  if (typeof weekOrElementId === 'object' && weekOrElementId !== null) {
+    const week = weekOrElementId;
+    const targetDays = options.selectedDays && options.selectedDays.length > 0 ? options.selectedDays : week.activeDays;
+
+    if (options.separateZip) {
+      const zip = new JSZip();
+      for (const dayKey of targetDays) {
+        const dayMeta = DAYS_OF_WEEK.find((d) => d.key === dayKey);
+        const dayLabel = dayMeta ? dayMeta.label.replace(/\s+/g, '_') : dayKey;
+
+        const dayContainer = createExportableScheduleElement(week, [dayKey]);
+        document.body.appendChild(dayContainer);
+
+        try {
+          const canvas = await html2canvas(dayContainer, {
+            scale: 2,
+            useCORS: true,
+            allowTaint: true,
+            backgroundColor: '#ffffff',
+            logging: false,
+            onclone: (clonedDoc) => {
+              sanitizeUnsupportedCssColors(clonedDoc);
+              clonedDoc.querySelectorAll('.hide-on-export').forEach((el) => {
+                (el as HTMLElement).style.display = 'none';
+              });
+            },
+          });
+
+          const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
+          if (blob) {
+            zip.file(`Grade_${dayLabel}.png`, blob);
+          }
+        } finally {
+          if (dayContainer.parentNode) {
+            dayContainer.parentNode.removeChild(dayContainer);
+          }
+        }
+      }
+
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(zipBlob);
+      link.download = `Grade_${week.title.replace(/[^a-zA-Z0-9_-]/g, '_')}_Imagens_Por_Dia.zip`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      return;
+    }
+
+    // Single Image with all selected days
+    const exportContainer = createExportableScheduleElement(week, targetDays);
+    document.body.appendChild(exportContainer);
+    const filename = customFilename || `Grade_${week.title.replace(/[^a-zA-Z0-9_-]/g, '_')}.png`;
+
+    try {
+      const canvas = await html2canvas(exportContainer, {
+        scale: 2,
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: '#ffffff',
+        logging: false,
+        onclone: (clonedDoc) => {
+          sanitizeUnsupportedCssColors(clonedDoc);
+          clonedDoc.querySelectorAll('.hide-on-export').forEach((el) => {
+            (el as HTMLElement).style.display = 'none';
+          });
+        },
+      });
+
+      const link = document.createElement('a');
+      link.download = filename;
+      link.href = canvas.toDataURL('image/png');
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } finally {
+      if (exportContainer.parentNode) {
+        exportContainer.parentNode.removeChild(exportContainer);
+      }
+    }
+  } else {
+    // Legacy element ID path
+    const exportContainer = document.getElementById(weekOrElementId as string);
+    if (!exportContainer) {
+      throw new Error('Elemento da grade não encontrado para exportação');
+    }
+    const filename = customFilename || 'grade_semanal.png';
+
+    const canvas = await html2canvas(exportContainer, {
+      scale: 2,
+      useCORS: true,
+      allowTaint: true,
+      backgroundColor: '#ffffff',
+      logging: false,
+      onclone: (clonedDoc) => {
+        sanitizeUnsupportedCssColors(clonedDoc);
+        clonedDoc.querySelectorAll('.hide-on-export').forEach((el) => {
+          (el as HTMLElement).style.display = 'none';
+        });
+      },
+    });
+
+    const link = document.createElement('a');
+    link.download = filename;
+    link.href = canvas.toDataURL('image/png');
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  }
 }
 
-export async function exportScheduleToPDF(elementId: string, title: string = 'Grade Semanal') {
-  const element = document.getElementById(elementId);
-  if (!element) return;
+export async function exportScheduleToPDF(
+  weekOrElementId: WeekSchedule | string,
+  titleOrOptions?: string | ExportFilterOptions
+) {
+  let options: ExportFilterOptions = {};
+  let customTitle = '';
 
-  const canvas = await html2canvas(element, {
-    scale: 2,
-    useCORS: true,
-    backgroundColor: '#ffffff',
-    logging: false,
-  });
+  if (typeof titleOrOptions === 'string') {
+    customTitle = titleOrOptions;
+  } else if (typeof titleOrOptions === 'object') {
+    options = titleOrOptions;
+  }
 
-  const imgData = canvas.toDataURL('image/png');
-  const pdf = new jsPDF('landscape', 'mm', 'a4');
-  const pdfWidth = pdf.internal.pageSize.getWidth();
-  const pdfHeight = pdf.internal.pageSize.getHeight();
+  if (typeof weekOrElementId === 'object' && weekOrElementId !== null) {
+    const week = weekOrElementId;
+    const targetDays = options.selectedDays && options.selectedDays.length > 0 ? options.selectedDays : week.activeDays;
 
-  const imgWidth = pdfWidth - 20;
-  const imgHeight = (canvas.height * imgWidth) / canvas.width;
+    if (options.separateZip) {
+      const zip = new JSZip();
+      for (const dayKey of targetDays) {
+        const dayMeta = DAYS_OF_WEEK.find((d) => d.key === dayKey);
+        const dayLabel = dayMeta ? dayMeta.label.replace(/\s+/g, '_') : dayKey;
 
-  let position = 10;
-  pdf.addImage(imgData, 'PNG', 10, position, imgWidth, Math.min(imgHeight, pdfHeight - 20));
+        const dayContainer = createExportableScheduleElement(week, [dayKey]);
+        document.body.appendChild(dayContainer);
 
-  pdf.save(`Grade_${title.replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf`);
+        try {
+          const canvas = await html2canvas(dayContainer, {
+            scale: 2,
+            useCORS: true,
+            allowTaint: true,
+            backgroundColor: '#ffffff',
+            logging: false,
+            onclone: (clonedDoc) => {
+              sanitizeUnsupportedCssColors(clonedDoc);
+              clonedDoc.querySelectorAll('.hide-on-export').forEach((el) => {
+                (el as HTMLElement).style.display = 'none';
+              });
+            },
+          });
+
+          const imgData = canvas.toDataURL('image/png');
+          const pdf = new jsPDF({
+            orientation: 'landscape',
+            unit: 'mm',
+            format: 'a4',
+          });
+
+          const pdfWidth = pdf.internal.pageSize.getWidth();
+          const margin = 8;
+          const printableWidth = pdfWidth - margin * 2;
+          const imgWidth = printableWidth;
+          const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+          pdf.addImage(imgData, 'PNG', margin, margin, imgWidth, imgHeight);
+          const pdfBlob = pdf.output('blob');
+          zip.file(`Grade_${dayLabel}.pdf`, pdfBlob);
+        } finally {
+          if (dayContainer.parentNode) {
+            dayContainer.parentNode.removeChild(dayContainer);
+          }
+        }
+      }
+
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(zipBlob);
+      link.download = `Grade_${week.title.replace(/[^a-zA-Z0-9_-]/g, '_')}_PDFs_Por_Dia.zip`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      return;
+    }
+
+    // Single Combined PDF
+    const exportContainer = createExportableScheduleElement(week, targetDays);
+    document.body.appendChild(exportContainer);
+    const pdfTitle = customTitle || week.title;
+
+    try {
+      const canvas = await html2canvas(exportContainer, {
+        scale: 2,
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: '#ffffff',
+        logging: false,
+        onclone: (clonedDoc) => {
+          sanitizeUnsupportedCssColors(clonedDoc);
+          clonedDoc.querySelectorAll('.hide-on-export').forEach((el) => {
+            (el as HTMLElement).style.display = 'none';
+          });
+        },
+      });
+
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF({
+        orientation: 'landscape',
+        unit: 'mm',
+        format: 'a4',
+      });
+
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = pdf.internal.pageSize.getHeight();
+      const margin = 8;
+      const printableWidth = pdfWidth - margin * 2;
+      const printableHeight = pdfHeight - margin * 2;
+
+      const imgWidth = printableWidth;
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+      if (imgHeight <= printableHeight) {
+        pdf.addImage(imgData, 'PNG', margin, margin, imgWidth, imgHeight);
+      } else {
+        let remainingHeight = imgHeight;
+        let position = margin;
+
+        pdf.addImage(imgData, 'PNG', margin, position, imgWidth, imgHeight);
+        remainingHeight -= printableHeight;
+
+        while (remainingHeight > 0) {
+          position = position - printableHeight;
+          pdf.addPage('a4', 'landscape');
+          pdf.addImage(imgData, 'PNG', margin, position, imgWidth, imgHeight);
+          remainingHeight -= printableHeight;
+        }
+      }
+
+      pdf.save(`Grade_${pdfTitle.replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf`);
+    } finally {
+      if (exportContainer.parentNode) {
+        exportContainer.parentNode.removeChild(exportContainer);
+      }
+    }
+  } else {
+    // Legacy element ID path
+    const exportContainer = document.getElementById(weekOrElementId as string);
+    if (!exportContainer) {
+      throw new Error('Elemento da grade não encontrado para exportação');
+    }
+    const pdfTitle = customTitle || 'Grade Semanal';
+
+    const canvas = await html2canvas(exportContainer, {
+      scale: 2,
+      useCORS: true,
+      allowTaint: true,
+      backgroundColor: '#ffffff',
+      logging: false,
+      onclone: (clonedDoc) => {
+        sanitizeUnsupportedCssColors(clonedDoc);
+        clonedDoc.querySelectorAll('.hide-on-export').forEach((el) => {
+          (el as HTMLElement).style.display = 'none';
+        });
+      },
+    });
+
+    const imgData = canvas.toDataURL('image/png');
+    const pdf = new jsPDF({
+      orientation: 'landscape',
+      unit: 'mm',
+      format: 'a4',
+    });
+
+    const pdfWidth = pdf.internal.pageSize.getWidth();
+    const margin = 8;
+    const printableWidth = pdfWidth - margin * 2;
+    const imgWidth = printableWidth;
+    const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+    pdf.addImage(imgData, 'PNG', margin, margin, imgWidth, imgHeight);
+    pdf.save(`Grade_${pdfTitle.replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf`);
+  }
 }
 
 export function exportBackupJSON(allWeeks: WeekSchedule[]) {

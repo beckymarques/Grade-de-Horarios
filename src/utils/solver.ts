@@ -41,36 +41,29 @@ export function generateScheduleWithSolver(
 ): SolverResult {
   const startTime = performance.now();
   const lessonSlots = slots.filter((s) => s.type === 'lesson');
-  const totalSlotsPerClass = activeDays.length * lessonSlots.length;
 
   const subjectMap = new Map(subjects.map((s) => [s.id, s]));
   const teacherMap = new Map(teachers.map((t) => [t.id, t]));
   const classMap = new Map(classes.map((c) => [c.id, c]));
 
-  // Find teachers capable of teaching each subject
+  // Build subject -> capable teachers map
   const subjectTeachersMap = new Map<string, Teacher[]>();
   for (const sub of subjects) {
     const capable = teachers.filter((t) => t.subjectIds.includes(sub.id));
     subjectTeachersMap.set(sub.id, capable);
   }
 
-  // Preserve locked cells from existingGrid
-  const grid: Record<string, GridCell> = {};
-  const lockedAllocationsByClass = new Map<string, number>();
-
+  // 1. Initialize Base Grid: Preserve user-locked cells & Pre-populate Enabled Fixed Slot Rules
+  const initialLockedGrid: Record<string, GridCell> = {};
   for (const day of activeDays) {
     for (const slot of lessonSlots) {
       for (const cls of classes) {
         const key = `${day}_${slot.id}_${cls.id}`;
         const existing = existingGrid[key];
         if (existing && existing.isLocked && existing.subjectId) {
-          grid[key] = { ...existing };
-          lockedAllocationsByClass.set(
-            cls.id,
-            (lockedAllocationsByClass.get(cls.id) || 0) + 1
-          );
+          initialLockedGrid[key] = { ...existing, isLocked: true };
         } else {
-          grid[key] = {
+          initialLockedGrid[key] = {
             id: `cell_${day}_${slot.id}_${cls.id}`,
             day,
             slotId: slot.id,
@@ -84,21 +77,137 @@ export function generateScheduleWithSolver(
     }
   }
 
-  // Flatten the loads into an allocation backlog per class
-  const itemsToAllocate: AllocationItem[] = [];
+  // Ensure locked cells in grouped classes or member classes are locked across related classes
+  for (const group of classes.filter((c) => c.isGrouped && c.groupedClassIds && c.groupedClassIds.length > 0)) {
+    for (const day of activeDays) {
+      for (const slot of lessonSlots) {
+        const groupKey = `${day}_${slot.id}_${group.id}`;
+        const groupCell = existingGrid[groupKey];
+
+        let masterLockedCell: GridCell | null = null;
+        if (groupCell && groupCell.isLocked && groupCell.subjectId) {
+          masterLockedCell = groupCell;
+        } else {
+          for (const memberId of group.groupedClassIds) {
+            const mKey = `${day}_${slot.id}_${memberId}`;
+            const mCell = existingGrid[mKey];
+            if (mCell && mCell.isLocked && mCell.subjectId) {
+              masterLockedCell = mCell;
+              break;
+            }
+          }
+        }
+
+        if (masterLockedCell) {
+          initialLockedGrid[groupKey] = {
+            ...masterLockedCell,
+            id: `cell_${day}_${slot.id}_${group.id}`,
+            classId: group.id,
+            isLocked: true,
+          };
+          for (const memberId of group.groupedClassIds) {
+            const mKey = `${day}_${slot.id}_${memberId}`;
+            initialLockedGrid[mKey] = {
+              ...masterLockedCell,
+              id: `cell_${day}_${slot.id}_${memberId}`,
+              classId: memberId,
+              isLocked: true,
+            };
+          }
+        }
+      }
+    }
+  }
+
+  // Pre-populate and lock fixed_slot rules
+  const fixedSlotRules = rules.filter((r) => r.type === 'fixed_slot' && r.isEnabled);
+  for (const rule of fixedSlotRules) {
+    const { day, slotId, classId, subjectId, teacherId } = rule.parameters;
+    if (day && slotId && classId && activeDays.includes(day)) {
+      const key = `${day}_${slotId}_${classId}`;
+      let assignedTeacherId = teacherId || null;
+      if (!assignedTeacherId && subjectId) {
+        // Pick preferred teacher or first capable
+        const capable = subjectTeachersMap.get(subjectId) || [];
+        if (capable.length > 0) {
+          assignedTeacherId = capable[0].id;
+        }
+      }
+
+      const cellToLock: GridCell = {
+        id: `cell_${day}_${slotId}_${classId}`,
+        day,
+        slotId,
+        classId,
+        subjectId: subjectId || null,
+        teacherId: assignedTeacherId,
+        isLocked: true,
+        note: `Fixado por regra: ${rule.name}`,
+      };
+
+      initialLockedGrid[key] = cellToLock;
+
+      // Also lock across grouped / member classes
+      const targetCls = classes.find((c) => c.id === classId);
+      if (targetCls?.isGrouped && targetCls.groupedClassIds) {
+        for (const mId of targetCls.groupedClassIds) {
+          initialLockedGrid[`${day}_${slotId}_${mId}`] = {
+            ...cellToLock,
+            id: `cell_${day}_${slotId}_${mId}`,
+            classId: mId,
+          };
+        }
+      } else {
+        for (const g of classes.filter((c) => c.isGrouped && c.groupedClassIds?.includes(classId))) {
+          initialLockedGrid[`${day}_${slotId}_${g.id}`] = {
+            ...cellToLock,
+            id: `cell_${day}_${slotId}_${g.id}`,
+            classId: g.id,
+          };
+          for (const mId of g.groupedClassIds || []) {
+            initialLockedGrid[`${day}_${slotId}_${mId}`] = {
+              ...cellToLock,
+              id: `cell_${day}_${slotId}_${mId}`,
+              classId: mId,
+            };
+          }
+        }
+      }
+    }
+  }
+
+  // 2. Calculate remaining items to allocate per load
+  const baseItemsToAllocate: AllocationItem[] = [];
   let totalTargetCount = 0;
 
   for (const load of loads) {
     const sub = subjectMap.get(load.subjectId);
     if (!sub) continue;
 
-    // Count how many already locked in grid for this class & subject
+    // Count already locked cells in initial grid for this class or linked grouped class
     let alreadyLocked = 0;
+    const targetCls = classMap.get(load.classId);
+    const relatedClassIds = new Set<string>([load.classId]);
+    if (targetCls?.isGrouped && targetCls.groupedClassIds) {
+      targetCls.groupedClassIds.forEach((id) => relatedClassIds.add(id));
+    }
+    for (const g of classes.filter((c) => c.isGrouped && c.groupedClassIds?.includes(load.classId))) {
+      relatedClassIds.add(g.id);
+      g.groupedClassIds?.forEach((id) => relatedClassIds.add(id));
+    }
+
     for (const day of activeDays) {
       for (const slot of lessonSlots) {
-        const key = `${day}_${slot.id}_${load.classId}`;
-        const cell = grid[key];
-        if (cell && cell.isLocked && cell.subjectId === sub.id) {
+        let hasLockedSubject = false;
+        for (const rId of relatedClassIds) {
+          const key = `${day}_${slot.id}_${rId}`;
+          const cell = initialLockedGrid[key];
+          if (cell && cell.isLocked && cell.subjectId === sub.id) {
+            hasLockedSubject = true;
+            break;
+          }
+        }
+        if (hasLockedSubject) {
           alreadyLocked++;
         }
       }
@@ -108,7 +217,7 @@ export function generateScheduleWithSolver(
     totalTargetCount += load.lessonsPerWeek;
 
     for (let i = 0; i < needed; i++) {
-      itemsToAllocate.push({
+      baseItemsToAllocate.push({
         id: `item_${load.classId}_${load.subjectId}_${i}`,
         classId: load.classId,
         subjectId: sub.id,
@@ -118,15 +227,6 @@ export function generateScheduleWithSolver(
     }
   }
 
-  // Heuristic sort: Heaviest subjects with fewest capable teachers first (MRV - Minimum Remaining Values)
-  itemsToAllocate.sort((a, b) => {
-    const teachersA = (subjectTeachersMap.get(a.subjectId) || []).length;
-    const teachersB = (subjectTeachersMap.get(b.subjectId) || []).length;
-    if (teachersA !== teachersB) return teachersA - teachersB;
-    if (a.isHeavy !== b.isHeavy) return a.isHeavy ? -1 : 1;
-    return 0;
-  });
-
   const mandatoryRules = rules.filter((r) => r.isEnabled && r.isMandatory);
   const preferenceRules = rules.filter((r) => r.isEnabled && !r.isMandatory);
 
@@ -135,7 +235,7 @@ export function generateScheduleWithSolver(
   const maxConsecRule = rules.find((r) => r.type === 'max_consecutive_teacher' && r.isEnabled);
   const maxConsecLimit = maxConsecRule?.parameters?.maxConsecutive || 3;
 
-  // Helper validation function for placing an item
+  // Placement check helper (STRICT: Physical laws & Absences are NEVER violated)
   function canPlace(
     item: AllocationItem,
     teacher: Teacher,
@@ -147,15 +247,28 @@ export function generateScheduleWithSolver(
     const key = `${day}_${slot.id}_${item.classId}`;
     const cell = currentGrid[key];
 
-    // Already occupied or locked
+    // Already occupied
     if (cell && cell.subjectId !== null) {
-      return { valid: false, penalty: 999, reason: 'Célula ocupada' };
+      return { valid: false, penalty: 99999, reason: 'Célula já ocupada' };
     }
 
-    // Physical Law: Teacher cannot be in 2 classes in the same slot
+    // 1. HARD PHYSICAL LAW: Teacher Absence / Indisponibilidade (NEVER RELAXED)
+    if (teacher.absences && teacher.absences.length > 0) {
+      const match = teacher.absences.find(
+        (a) => a.day === day && (a.allDay || !a.slotIds || a.slotIds.length === 0 || a.slotIds.includes(slot.id))
+      );
+      if (match) {
+        return {
+          valid: false,
+          penalty: 99999,
+          reason: `Professor ${teacher.shortName || teacher.name} ausente em ${day}${match.allDay ? ' (dia todo)' : ` no ${slot.name}`}`,
+        };
+      }
+    }
+
+    // 2. HARD PHYSICAL LAW: Teacher cannot teach 2 classes in the same slot
     for (const cls of classes) {
       if (cls.id === item.classId) continue;
-      // If classes are part of the same grouped batch, teacher can attend both simultaneously
       if (areClassesInSameGroup(item.classId, cls.id, classes)) continue;
 
       const otherKey = `${day}_${slot.id}_${cls.id}`;
@@ -163,13 +276,13 @@ export function generateScheduleWithSolver(
       if (otherCell && otherCell.teacherId === teacher.id) {
         return {
           valid: false,
-          penalty: 999,
-          reason: `Professor ${teacher.shortName} já está em outra turma (${cls.name})`,
+          penalty: 99999,
+          reason: `Professor ${teacher.shortName || teacher.name} já está na turma ${cls.name}`,
         };
       }
     }
 
-    // Shared Room constraint
+    // 3. HARD PHYSICAL LAW: Shared Room / Laboratório constraint
     if (teacher.sharedRoomId) {
       for (const cls of classes) {
         const otherKey = `${day}_${slot.id}_${cls.id}`;
@@ -179,30 +292,48 @@ export function generateScheduleWithSolver(
           if (otherTeacher && otherTeacher.id !== teacher.id && otherTeacher.sharedRoomId === teacher.sharedRoomId) {
             return {
               valid: false,
-              penalty: 999,
-              reason: `Sala compartilhada ocupada pelo Prof. ${otherTeacher.shortName}`,
+              penalty: 99999,
+              reason: `Espaço compartilhado ocupado pelo Prof. ${otherTeacher.shortName || otherTeacher.name}`,
             };
           }
         }
       }
     }
 
-    // Teacher Absence constraint
-    if (teacher.absences && teacher.absences.length > 0) {
-      const match = teacher.absences.find(
-        (a) => a.day === day && (a.allDay || (a.slotIds && a.slotIds.includes(slot.id)))
-      );
-      if (match) {
-        return {
-          valid: false,
-          penalty: 999,
-          reason: `Professor ${teacher.shortName} ausente neste dia/horário`,
-        };
+    // 4. Forbidden Slot Rules (supporting slotIds array and single slotId)
+    const forbiddenRules = rules.filter((r) => r.type === 'forbidden_slot' && r.isEnabled);
+    for (const rule of forbiddenRules) {
+      const { subjectId, teacherId, classId, slotId: ruleSlotId, slotIds: ruleSlotIds, day: ruleDay, days: ruleDays } = rule.parameters;
+      const isClassMatch = !classId || classId === item.classId || areClassesInSameGroup(classId, item.classId, classes);
+      const isDayMatch = (!ruleDay && (!ruleDays || ruleDays.length === 0)) || (ruleDay && ruleDay === day) || (ruleDays && ruleDays.includes(day));
+      const isSlotMatch =
+        (!ruleSlotId && (!ruleSlotIds || ruleSlotIds.length === 0)) ||
+        (ruleSlotId && ruleSlotId === slot.id) ||
+        (ruleSlotIds && ruleSlotIds.includes(slot.id));
+
+      if (isDayMatch && isSlotMatch && isClassMatch) {
+        if (subjectId && subjectId === item.subjectId) {
+          if (rule.isMandatory || !ignorePreferences) {
+            return {
+              valid: false,
+              penalty: rule.isMandatory ? 99999 : 60,
+              reason: `Disciplina proibida neste horário pela regra "${rule.name}"`,
+            };
+          }
+        }
+        if (teacherId && teacherId === teacher.id) {
+          if (rule.isMandatory || !ignorePreferences) {
+            return {
+              valid: false,
+              penalty: rule.isMandatory ? 99999 : 60,
+              reason: `Professor com restrição pela regra "${rule.name}"`,
+            };
+          }
+        }
       }
     }
 
-    // No Duplicate Subject on Same Day
-    // (Considering same subject name: e.g. "Química" twice on the same day is forbidden, but "Química Orgânica" and "Química Inorgânica" are allowed)
+    // 5. No Duplicate Subject on Same Day (Pedagogical Rule)
     const isSingleDayWeek = activeDays.length === 1;
     const itemSubject = subjectMap.get(item.subjectId);
     const itemSubName = itemSubject?.name.trim().toLowerCase();
@@ -232,8 +363,8 @@ export function generateScheduleWithSolver(
             if (noDupSubjectRule.isMandatory || !ignorePreferences) {
               return {
                 valid: false,
-                penalty: noDupSubjectRule.isMandatory ? 999 : 50,
-                reason: `Disciplina "${itemSubject?.name || 'Disciplina'}" já possui aula agendada em ${day} para esta turma`,
+                penalty: noDupSubjectRule.isMandatory ? 99999 : 50,
+                reason: `Disciplina "${itemSubject?.name}" já agendada em ${day} para esta turma`,
               };
             }
           }
@@ -241,77 +372,55 @@ export function generateScheduleWithSolver(
       }
     }
 
-    // No Consecutive Heavy Subjects
+    // 6. No Consecutive Heavy Subjects (Intervals reset consecutive count)
     if (noConsecHeavyRule && item.isHeavy) {
-      const currentSlotIndex = lessonSlots.findIndex((s) => s.id === slot.id);
-      const prevSlot = currentSlotIndex > 0 ? lessonSlots[currentSlotIndex - 1] : null;
-      const nextSlot = currentSlotIndex < lessonSlots.length - 1 ? lessonSlots[currentSlotIndex + 1] : null;
+      const fullSlotIdx = slots.findIndex((s) => s.id === slot.id);
 
-      if (prevSlot) {
-        const prevCell = currentGrid[`${day}_${prevSlot.id}_${item.classId}`];
-        if (prevCell && prevCell.subjectId) {
-          const prevSub = subjectMap.get(prevCell.subjectId);
-          if (prevSub?.isHeavy) {
-            if (noConsecHeavyRule.isMandatory || !ignorePreferences) {
-              return {
-                valid: false,
-                penalty: noConsecHeavyRule.isMandatory ? 999 : 40,
-                reason: `Disciplina pesada consecutiva com ${prevSub.shortName}`,
-              };
+      if (fullSlotIdx > 0) {
+        const prevFullSlot = slots[fullSlotIdx - 1];
+        if (prevFullSlot.type === 'lesson') {
+          const prevCell = currentGrid[`${day}_${prevFullSlot.id}_${item.classId}`];
+          if (prevCell && prevCell.subjectId) {
+            const prevSub = subjectMap.get(prevCell.subjectId);
+            if (prevSub?.isHeavy) {
+              if (noConsecHeavyRule.isMandatory || !ignorePreferences) {
+                return {
+                  valid: false,
+                  penalty: noConsecHeavyRule.isMandatory ? 99999 : 40,
+                  reason: `Disciplina pesada consecutiva com ${prevSub.shortName}`,
+                };
+              }
             }
           }
         }
       }
 
-      if (nextSlot) {
-        const nextCell = currentGrid[`${day}_${nextSlot.id}_${item.classId}`];
-        if (nextCell && nextCell.subjectId) {
-          const nextSub = subjectMap.get(nextCell.subjectId);
-          if (nextSub?.isHeavy) {
-            if (noConsecHeavyRule.isMandatory || !ignorePreferences) {
-              return {
-                valid: false,
-                penalty: noConsecHeavyRule.isMandatory ? 999 : 40,
-                reason: `Disciplina pesada consecutiva com ${nextSub.shortName}`,
-              };
+      if (fullSlotIdx < slots.length - 1) {
+        const nextFullSlot = slots[fullSlotIdx + 1];
+        if (nextFullSlot.type === 'lesson') {
+          const nextCell = currentGrid[`${day}_${nextFullSlot.id}_${item.classId}`];
+          if (nextCell && nextCell.subjectId) {
+            const nextSub = subjectMap.get(nextCell.subjectId);
+            if (nextSub?.isHeavy) {
+              if (noConsecHeavyRule.isMandatory || !ignorePreferences) {
+                return {
+                  valid: false,
+                  penalty: noConsecHeavyRule.isMandatory ? 99999 : 40,
+                  reason: `Disciplina pesada consecutiva com ${nextSub.shortName}`,
+                };
+              }
             }
           }
         }
       }
     }
 
-    // Forbidden slot rules
-    for (const rule of mandatoryRules.concat(ignorePreferences ? [] : preferenceRules)) {
-      if (rule.type === 'forbidden_slot') {
-        const { subjectId, teacherId, classId, slotId: ruleSlotId, day: ruleDay } = rule.parameters;
-        if (
-          (!ruleDay || ruleDay === day) &&
-          (!ruleSlotId || ruleSlotId === slot.id) &&
-          (!classId || classId === item.classId)
-        ) {
-          if (subjectId && subjectId === item.subjectId) {
-            return {
-              valid: false,
-              penalty: rule.isMandatory ? 999 : 60,
-              reason: `Disciplina proibida neste horário pela regra "${rule.name}"`,
-            };
-          }
-          if (teacherId && teacherId === teacher.id) {
-            return {
-              valid: false,
-              penalty: rule.isMandatory ? 999 : 60,
-              reason: `Professor com restrição de horário pela regra "${rule.name}"`,
-            };
-          }
-        }
-      }
-    }
-
-    // Check Max Consecutive Lessons for Teacher
-    const currentSlotIndex = lessonSlots.findIndex((s) => s.id === slot.id);
+    // 7. Max Consecutive Lessons for Teacher
+    const fullCurrentIndex = slots.findIndex((s) => s.id === slot.id);
     let consecutiveBefore = 0;
-    for (let i = currentSlotIndex - 1; i >= 0; i--) {
-      const s = lessonSlots[i];
+    for (let i = fullCurrentIndex - 1; i >= 0; i--) {
+      const s = slots[i];
+      if (s.type === 'interval' || s.type === 'event') break;
       let taught = false;
       for (const cls of classes) {
         const cKey = `${day}_${s.id}_${cls.id}`;
@@ -325,8 +434,9 @@ export function generateScheduleWithSolver(
     }
 
     let consecutiveAfter = 0;
-    for (let i = currentSlotIndex + 1; i < lessonSlots.length; i++) {
-      const s = lessonSlots[i];
+    for (let i = fullCurrentIndex + 1; i < slots.length; i++) {
+      const s = slots[i];
+      if (s.type === 'interval' || s.type === 'event') break;
       let taught = false;
       for (const cls of classes) {
         const cKey = `${day}_${s.id}_${cls.id}`;
@@ -344,7 +454,7 @@ export function generateScheduleWithSolver(
       if (maxConsecRule?.isMandatory || !ignorePreferences) {
         return {
           valid: false,
-          penalty: maxConsecRule?.isMandatory ? 999 : 30,
+          penalty: maxConsecRule?.isMandatory ? 99999 : 30,
           reason: `Excede limite de ${teacher.maxConsecutiveLessons || maxConsecLimit} tempos seguidos do Prof. ${teacher.shortName}`,
         };
       }
@@ -353,80 +463,92 @@ export function generateScheduleWithSolver(
     return { valid: true, penalty: 0 };
   }
 
-  // Backtracking / Greedy CSP Solver
-  let allocatedCount = 0;
-  const unallocatedItems: { item: AllocationItem; reasons: string[] }[] = [];
+  // --- SOLVER ENGINE: Multi-Pass with Local Search / Swapping ---
+  let bestGrid: Record<string, GridCell> = { ...initialLockedGrid };
+  let bestAllocatedCount = -1;
+  let bestUnallocated: { item: AllocationItem; reasons: string[] }[] = [];
 
-  // Group items by class to balance day distribution
-  const classItems = new Map<string, AllocationItem[]>();
-  for (const item of itemsToAllocate) {
-    const list = classItems.get(item.classId) || [];
-    list.push(item);
-    classItems.set(item.classId, list);
-  }
+  const maxAttempts = 8;
 
-  // Iterate classes and allocate slots
-  for (const cls of classes) {
-    const items = classItems.get(cls.id) || [];
-    
-    // Find all empty/unlocked slots for this class
-    const availableSlots: { day: DayOfWeek; slot: TimeSlot }[] = [];
-    for (const day of activeDays) {
-      for (const slot of lessonSlots) {
-        const key = `${day}_${slot.id}_${cls.id}`;
-        if (!grid[key] || (!grid[key].isLocked && grid[key].subjectId === null)) {
-          availableSlots.push({ day, slot });
-        }
-      }
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    // Clone starting grid for this attempt
+    const workingGrid: Record<string, GridCell> = {};
+    for (const [k, v] of Object.entries(initialLockedGrid)) {
+      workingGrid[k] = { ...v };
     }
 
-    // Shuffle slots slightly across days to prevent clumping on Mondays
-    availableSlots.sort((a, b) => {
-      // Prioritize days with fewer lessons in this class
-      const countDayA = lessonSlots.filter((s) => grid[`${a.day}_${s.id}_${cls.id}`]?.subjectId).length;
-      const countDayB = lessonSlots.filter((s) => grid[`${b.day}_${s.id}_${cls.id}`]?.subjectId).length;
-      return countDayA - countDayB;
+    // Sort items to allocate: Most constrained subjects and classes first
+    const items = [...baseItemsToAllocate];
+    items.sort((a, b) => {
+      const teachersA = (subjectTeachersMap.get(a.subjectId) || []).length;
+      const teachersB = (subjectTeachersMap.get(b.subjectId) || []).length;
+      if (teachersA !== teachersB) return teachersA - teachersB;
+      if (a.isHeavy !== b.isHeavy) return a.isHeavy ? -1 : 1;
+      return attempt === 0 ? 0 : Math.random() - 0.5;
     });
+
+    let currentAllocated = 0;
+    const currentUnallocated: { item: AllocationItem; reasons: string[] }[] = [];
 
     for (const item of items) {
       const capableTeachers = subjectTeachersMap.get(item.subjectId) || [];
       if (capableTeachers.length === 0) {
-        unallocatedItems.push({
+        currentUnallocated.push({
           item,
-          reasons: [`Nenhum professor cadastrado para lecionar ${subjectMap.get(item.subjectId)?.name}`],
+          reasons: [`Nenhum professor habilitado para ${subjectMap.get(item.subjectId)?.name}`],
         });
         continue;
       }
 
-      // Sort teachers: preferred first
+      // Sort teachers: preferred teacher first, then teachers with fewer absences
       const sortedTeachers = [...capableTeachers].sort((t1, t2) => {
         if (t1.id === item.preferredTeacherId) return -1;
         if (t2.id === item.preferredTeacherId) return 1;
-        return 0;
+        return (t1.absences?.length || 0) - (t2.absences?.length || 0);
+      });
+
+      // Build available slots for this class
+      const slotCandidates: { day: DayOfWeek; slot: TimeSlot }[] = [];
+      for (const day of activeDays) {
+        for (const slot of lessonSlots) {
+          slotCandidates.push({ day, slot });
+        }
+      }
+
+      // Balance slots across active days
+      slotCandidates.sort((a, b) => {
+        const countA = lessonSlots.filter(
+          (s) => workingGrid[`${a.day}_${s.id}_${item.classId}`]?.subjectId
+        ).length;
+        const countB = lessonSlots.filter(
+          (s) => workingGrid[`${b.day}_${s.id}_${item.classId}`]?.subjectId
+        ).length;
+        if (countA !== countB) return countA - countB;
+        return attempt === 0 ? 0 : Math.random() - 0.5;
       });
 
       let placed = false;
       const failReasons: string[] = [];
 
-      // Attempt 1: Strict rules
-      for (const slotCandidate of availableSlots) {
-        const key = `${slotCandidate.day}_${slotCandidate.slot.id}_${cls.id}`;
-        if (grid[key]?.subjectId !== null) continue;
+      // PHASE 1: Direct placement in empty slot (Strict Rules)
+      for (const cand of slotCandidates) {
+        const key = `${cand.day}_${cand.slot.id}_${item.classId}`;
+        if (workingGrid[key]?.subjectId !== null) continue;
 
         for (const teacher of sortedTeachers) {
-          const check = canPlace(item, teacher, slotCandidate.day, slotCandidate.slot, grid, false);
+          const check = canPlace(item, teacher, cand.day, cand.slot, workingGrid, false);
           if (check.valid) {
-            grid[key] = {
-              id: `cell_${slotCandidate.day}_${slotCandidate.slot.id}_${cls.id}`,
-              day: slotCandidate.day,
-              slotId: slotCandidate.slot.id,
-              classId: cls.id,
+            workingGrid[key] = {
+              id: `cell_${cand.day}_${cand.slot.id}_${item.classId}`,
+              day: cand.day,
+              slotId: cand.slot.id,
+              classId: item.classId,
               subjectId: item.subjectId,
               teacherId: teacher.id,
               isLocked: false,
             };
             placed = true;
-            allocatedCount++;
+            currentAllocated++;
             break;
           } else if (check.reason) {
             failReasons.push(check.reason);
@@ -435,27 +557,119 @@ export function generateScheduleWithSolver(
         if (placed) break;
       }
 
-      // Attempt 2: Relax soft preferences if not placed
+      // PHASE 2: 1-Step Swap / Relocation Repair
       if (!placed) {
-        for (const slotCandidate of availableSlots) {
-          const key = `${slotCandidate.day}_${slotCandidate.slot.id}_${cls.id}`;
-          if (grid[key]?.subjectId !== null) continue;
+        for (const cand of slotCandidates) {
+          const targetKey = `${cand.day}_${cand.slot.id}_${item.classId}`;
+          const existingCell = workingGrid[targetKey];
+
+          // Only displace unlocked cells (locked cells and fixed rules are never touched!)
+          if (existingCell && !existingCell.isLocked && existingCell.subjectId && existingCell.teacherId) {
+            const incumbentSub = subjectMap.get(existingCell.subjectId);
+            const incumbentTeacher = teacherMap.get(existingCell.teacherId);
+            if (!incumbentSub || !incumbentTeacher) continue;
+
+            const incumbentItem: AllocationItem = {
+              id: `incumbent_${existingCell.id}`,
+              classId: item.classId,
+              subjectId: incumbentSub.id,
+              isHeavy: incumbentSub.isHeavy,
+            };
+
+            // Temporarily vacate target slot
+            workingGrid[targetKey] = {
+              ...existingCell,
+              subjectId: null,
+              teacherId: null,
+            };
+
+            let canPlaceNewItem = false;
+            let chosenTeacherForNew: Teacher | null = null;
+            for (const teacher of sortedTeachers) {
+              const checkNew = canPlace(item, teacher, cand.day, cand.slot, workingGrid, false);
+              if (checkNew.valid) {
+                canPlaceNewItem = true;
+                chosenTeacherForNew = teacher;
+                break;
+              }
+            }
+
+            if (canPlaceNewItem && chosenTeacherForNew) {
+              workingGrid[targetKey] = {
+                id: `cell_${cand.day}_${cand.slot.id}_${item.classId}`,
+                day: cand.day,
+                slotId: cand.slot.id,
+                classId: item.classId,
+                subjectId: item.subjectId,
+                teacherId: chosenTeacherForNew.id,
+                isLocked: false,
+              };
+
+              let relocatedIncumbent = false;
+              for (const altCand of slotCandidates) {
+                const altKey = `${altCand.day}_${altCand.slot.id}_${item.classId}`;
+                if (workingGrid[altKey]?.subjectId !== null) continue;
+
+                const checkIncumbent = canPlace(
+                  incumbentItem,
+                  incumbentTeacher,
+                  altCand.day,
+                  altCand.slot,
+                  workingGrid,
+                  false
+                );
+                if (checkIncumbent.valid) {
+                  workingGrid[altKey] = {
+                    id: `cell_${altCand.day}_${altCand.slot.id}_${item.classId}`,
+                    day: altCand.day,
+                    slotId: altCand.slot.id,
+                    classId: item.classId,
+                    subjectId: incumbentItem.subjectId,
+                    teacherId: incumbentTeacher.id,
+                    isLocked: false,
+                  };
+                  relocatedIncumbent = true;
+                  break;
+                }
+              }
+
+              if (relocatedIncumbent) {
+                placed = true;
+                currentAllocated++;
+                break;
+              } else {
+                // Revert
+                workingGrid[targetKey] = existingCell;
+              }
+            } else {
+              // Revert
+              workingGrid[targetKey] = existingCell;
+            }
+          }
+        }
+      }
+
+      // PHASE 3: Soft Preference Relaxation (Absences & Physical Laws remain strictly enforced)
+      if (!placed) {
+        for (const cand of slotCandidates) {
+          const key = `${cand.day}_${cand.slot.id}_${item.classId}`;
+          if (workingGrid[key]?.subjectId !== null) continue;
 
           for (const teacher of sortedTeachers) {
-            const check = canPlace(item, teacher, slotCandidate.day, slotCandidate.slot, grid, true);
+            const check = canPlace(item, teacher, cand.day, cand.slot, workingGrid, true);
             if (check.valid) {
-              grid[key] = {
-                id: `cell_${slotCandidate.day}_${slotCandidate.slot.id}_${cls.id}`,
-                day: slotCandidate.day,
-                slotId: slotCandidate.slot.id,
-                classId: cls.id,
+              workingGrid[key] = {
+                id: `cell_${cand.day}_${cand.slot.id}_${item.classId}`,
+                day: cand.day,
+                slotId: cand.slot.id,
+                classId: item.classId,
                 subjectId: item.subjectId,
                 teacherId: teacher.id,
                 isLocked: false,
                 note: 'Alocado com relaxamento de preferência',
               };
               placed = true;
-              allocatedCount++;
+              currentAllocated++;
               break;
             }
           }
@@ -464,31 +678,64 @@ export function generateScheduleWithSolver(
       }
 
       if (!placed) {
-        unallocatedItems.push({
+        currentUnallocated.push({
           item,
           reasons: Array.from(new Set(failReasons)).slice(0, 3),
         });
       }
     }
+
+    if (currentAllocated > bestAllocatedCount) {
+      bestAllocatedCount = currentAllocated;
+      bestGrid = workingGrid;
+      bestUnallocated = currentUnallocated;
+    }
+
+    if (currentUnallocated.length === 0) {
+      break;
+    }
   }
 
   const durationMs = Math.round(performance.now() - startTime);
 
-  // Grouped classes synchronization (e.g. MACC01/MACC02)
+  // Grouped classes synchronization & locked cells preservation
+  // 1. Re-apply all initially locked cells to guarantee nothing unlocked was lost
+  for (const [key, cell] of Object.entries(initialLockedGrid)) {
+    if (cell && cell.isLocked && cell.subjectId) {
+      bestGrid[key] = { ...cell };
+    }
+  }
+
+  // 2. Bidirectional sync for grouped classes
   for (const group of classes.filter((c) => c.isGrouped && c.groupedClassIds && c.groupedClassIds.length > 0)) {
-    // Sync cells from primary class to other grouped classes
-    const primaryId = group.groupedClassIds[0];
-    if (primaryId) {
-      for (const day of activeDays) {
-        for (const slot of lessonSlots) {
-          const sourceKey = `${day}_${slot.id}_${primaryId}`;
-          const targetKey = `${day}_${slot.id}_${group.id}`;
-          const sourceCell = grid[sourceKey];
-          if (sourceCell) {
-            grid[targetKey] = {
-              ...sourceCell,
-              id: `cell_${day}_${slot.id}_${group.id}`,
-              classId: group.id,
+    for (const day of activeDays) {
+      for (const slot of lessonSlots) {
+        const groupKey = `${day}_${slot.id}_${group.id}`;
+        let masterCell = bestGrid[groupKey];
+
+        if (!masterCell || !masterCell.subjectId) {
+          for (const memberId of group.groupedClassIds) {
+            const mKey = `${day}_${slot.id}_${memberId}`;
+            const mCell = bestGrid[mKey];
+            if (mCell && mCell.subjectId) {
+              masterCell = mCell;
+              break;
+            }
+          }
+        }
+
+        if (masterCell && masterCell.subjectId) {
+          bestGrid[groupKey] = {
+            ...masterCell,
+            id: `cell_${day}_${slot.id}_${group.id}`,
+            classId: group.id,
+          };
+          for (const memberId of group.groupedClassIds) {
+            const mKey = `${day}_${slot.id}_${memberId}`;
+            bestGrid[mKey] = {
+              ...masterCell,
+              id: `cell_${day}_${slot.id}_${memberId}`,
+              classId: memberId,
             };
           }
         }
@@ -496,14 +743,16 @@ export function generateScheduleWithSolver(
     }
   }
 
-  // Generate Diagnostics & Actionable Relaxation Suggestions
+  // Diagnostics & relaxation suggestions
   const diagnostics: string[] = [];
   const suggestedRelaxations: string[] = [];
 
-  if (unallocatedItems.length > 0) {
-    // Summarize bottlenecks
-    const unallocatedBySubClass = new Map<string, { count: number; reasons: Set<string>; subName: string; clsName: string }>();
-    for (const u of unallocatedItems) {
+  if (bestUnallocated.length > 0) {
+    const unallocatedBySubClass = new Map<
+      string,
+      { count: number; reasons: Set<string>; subName: string; clsName: string }
+    >();
+    for (const u of bestUnallocated) {
       const sub = subjectMap.get(u.item.subjectId);
       const cls = classMap.get(u.item.classId);
       const k = `${u.item.classId}_${u.item.subjectId}`;
@@ -521,37 +770,36 @@ export function generateScheduleWithSolver(
     unallocatedBySubClass.forEach((val) => {
       const reasonList = Array.from(val.reasons).join('; ');
       diagnostics.push(
-        `Faltam ${val.count} aula(s) de ${val.subName} na turma ${val.clsName}. Motivo principal: ${reasonList || 'Indisponibilidade de horários compatíveis'}.`
+        `Faltam ${val.count} aula(s) de ${val.subName} na turma ${val.clsName}. Motivo: ${reasonList || 'Conflito de horários de professores'}.`
       );
     });
 
-    // Smart relaxation recommendations
-    if (noConsecHeavyRule && noConsecHeavyRule.isEnabled && noConsecHeavyRule.isMandatory) {
+    if (noConsecHeavyRule?.isEnabled && noConsecHeavyRule.isMandatory) {
       suggestedRelaxations.push(
-        'Mudar a regra "Disciplinas Pesadas Consecutivas" de Obrigatória para Preferência para liberar mais combinações.'
+        'Mudar a regra "Disciplinas Pesadas Consecutivas" para Preferência.'
       );
     }
-    if (noDupSubjectRule && noDupSubjectRule.isEnabled && noDupSubjectRule.isMandatory) {
+    if (noDupSubjectRule?.isEnabled && noDupSubjectRule.isMandatory) {
       suggestedRelaxations.push(
-        'Permitir dobradinha (2 aulas da mesma matéria no mesmo dia) mudando a regra "Sem repetição no mesmo dia" para Preferência.'
+        'Permitir dobra de aula mudando a regra "Sem repetição no mesmo dia" para Preferência.'
       );
     }
-    if (maxConsecRule && maxConsecRule.isMandatory) {
+    if (maxConsecRule?.isMandatory) {
       suggestedRelaxations.push(
         'Aumentar o limite de tempos seguidos dos professores de 2 para 3 tempos.'
       );
     }
     suggestedRelaxations.push(
-      'Verificar se há faltas cadastradas em dias com alta demanda ou cadastrar professores substitutos/suporte para as matérias em falta.'
+      'Verificar se há faltas cadastradas em dias com alta demanda ou adicionar mais professores habilitados para a matéria.'
     );
   }
 
-  const success = unallocatedItems.length === 0;
+  const success = bestUnallocated.length === 0;
 
   return {
     success,
-    grid,
-    allocatedCount,
+    grid: bestGrid,
+    allocatedCount: bestAllocatedCount,
     totalTargetCount,
     violations: diagnostics,
     diagnostics,

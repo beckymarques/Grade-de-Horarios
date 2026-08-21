@@ -11,6 +11,7 @@ import {
 } from '../types';
 import { useSchedule } from '../context/ScheduleContext';
 import { CellEditModal } from './CellEditModal';
+import { resolveCellForClass } from '../utils/rulesEngine';
 import {
   Lock,
   Unlock,
@@ -35,12 +36,14 @@ interface TimetableGridProps {
   onOpenSolver?: () => void;
   onOpenExport?: () => void;
   onOpenLayoutModal?: () => void;
+  onOpenConflicts?: () => void;
 }
 
 export const TimetableGrid: React.FC<TimetableGridProps> = ({
   onOpenSolver,
   onOpenExport,
   onOpenLayoutModal,
+  onOpenConflicts,
 }) => {
   const {
     activeWeek,
@@ -134,8 +137,13 @@ export const TimetableGrid: React.FC<TimetableGridProps> = ({
     }
 
     // If target has a subject, swap; otherwise move
-    const targetKey = `${targetDay}_${targetSlotId}_${targetClassId}`;
-    const targetCell = activeWeek.grid[targetKey];
+    const targetCell = resolveCellForClass(
+      activeWeek.grid,
+      targetDay,
+      targetSlotId,
+      targetClassId,
+      activeWeek.classes
+    );
 
     if (targetCell && targetCell.subjectId) {
       swapCells(source, target);
@@ -453,15 +461,15 @@ export const TimetableGrid: React.FC<TimetableGridProps> = ({
 
                       {/* Validation Column Header */}
                       <th
-                        className={`w-28 text-center ${
+                        className={`min-w-[240px] max-w-[320px] text-left hide-on-export ${
                           layoutTheme === 'school_board'
-                            ? 'p-2.5 text-amber-300 font-mono'
+                            ? 'p-2.5 text-amber-300 font-mono text-xs'
                             : layoutTheme === 'compact_density'
-                            ? 'p-1.5 w-20'
-                            : 'p-3'
+                            ? 'p-1.5 text-slate-600 text-[10px]'
+                            : 'p-3 text-slate-600 text-xs'
                         }`}
                       >
-                        Validação
+                        Validação em Tempo Real
                       </th>
                     </tr>
                   </thead>
@@ -544,7 +552,38 @@ export const TimetableGrid: React.FC<TimetableGridProps> = ({
                             >
                               Intervalo Geral
                             </td>
-                            <td className="p-2 text-center text-slate-400 text-xs">—</td>
+                            <td className="p-2 align-top text-left hide-on-export">
+                              {slotConflicts.length > 0 ? (
+                                <div className="space-y-1.5">
+                                  {slotConflicts.map((c, i) => (
+                                    <div
+                                      key={i}
+                                      className={`p-1.5 rounded-lg text-[11px] leading-tight font-medium ${
+                                        c.severity === 'error'
+                                          ? 'bg-rose-100 text-rose-900 border border-rose-300'
+                                          : 'bg-amber-100 text-amber-900 border border-amber-300'
+                                      }`}
+                                    >
+                                      <div className="font-bold flex items-center gap-1">
+                                        <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                                        <span>{c.ruleName}</span>
+                                      </div>
+                                      <div className="text-[10px] mt-0.5">{c.message}</div>
+                                      {c.suggestion && (
+                                        <div className="text-[9px] opacity-80 mt-0.5 italic">
+                                          {c.suggestion}
+                                        </div>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
+                                  <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
+                                  OK (Horário regular)
+                                </span>
+                              )}
+                            </td>
                           </tr>
                         );
                       }
@@ -593,7 +632,13 @@ export const TimetableGrid: React.FC<TimetableGridProps> = ({
                           {/* Class Schedule Cells */}
                           {displayClasses.map((cls) => {
                             const cellKey = `${dayKey}_${slot.id}_${cls.id}`;
-                            const cell = activeWeek.grid[cellKey];
+                            const cell = resolveCellForClass(
+                              activeWeek.grid,
+                              dayKey,
+                              slot.id,
+                              cls.id,
+                              activeWeek.classes
+                            );
                             const subject = cell?.subjectId ? subjectMap.get(cell.subjectId) : null;
                             const teacher = cell?.teacherId ? teacherMap.get(cell.teacherId) : null;
 
@@ -901,27 +946,37 @@ export const TimetableGrid: React.FC<TimetableGridProps> = ({
                           </td>
 
                           {/* Live Slot Validation Status */}
-                          <td className="p-2 text-center align-middle">
-                            {hasSlotError ? (
-                              <span
-                                className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-700 bg-rose-100 px-2 py-1 rounded-full"
-                                title={slotConflicts.map((c) => c.message).join('\n')}
-                              >
-                                <AlertTriangle className="w-3 h-3 text-rose-600 shrink-0" />
-                                <span>{slotConflicts.length}</span>
-                              </span>
-                            ) : hasSlotWarning ? (
-                              <span
-                                className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-1 rounded-full"
-                                title={slotConflicts.map((c) => c.message).join('\n')}
-                              >
-                                <AlertTriangle className="w-3 h-3 text-amber-600 shrink-0" />
-                                <span>{slotConflicts.length}</span>
-                              </span>
+                          <td className="p-2 text-left align-top hide-on-export">
+                            {slotConflicts.length > 0 ? (
+                              <div className="space-y-1.5">
+                                {slotConflicts.map((conflict, idx) => (
+                                  <div
+                                    key={idx}
+                                    className={`p-1.5 rounded-lg text-[11px] leading-tight font-medium ${
+                                      conflict.severity === 'error'
+                                        ? 'bg-rose-100 text-rose-900 border border-rose-300'
+                                        : 'bg-amber-100 text-amber-900 border border-amber-300'
+                                    }`}
+                                  >
+                                    <div className="font-bold flex items-center gap-1">
+                                      <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                                      <span>{conflict.ruleName}</span>
+                                    </div>
+                                    <div className="text-[10px] mt-0.5 text-slate-800">
+                                      {conflict.message}
+                                    </div>
+                                    {conflict.suggestion && (
+                                      <div className="text-[9px] text-slate-600 mt-0.5 italic">
+                                        {conflict.suggestion}
+                                      </div>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
                             ) : (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-100 px-2 py-1 rounded-full">
+                              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
                                 <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
-                                OK
+                                ✨ OK (Sem conflitos)
                               </span>
                             )}
                           </td>

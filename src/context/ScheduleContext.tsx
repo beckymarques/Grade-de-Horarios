@@ -12,7 +12,12 @@ import {
   WeekSchedule,
   TimetableLayoutTheme,
 } from '../types';
-import { createInitialSampleWeek, createSecondarySampleWeek } from '../data/mockInitialData';
+import {
+  createInitialSampleWeek,
+  createSecondarySampleWeek,
+  createEmptySampleWeek,
+  INITIAL_RULES,
+} from '../data/mockInitialData';
 import { calculateTimeSlots } from '../utils/timeCalculator';
 import { generateScheduleWithSolver, SolverResult } from '../utils/solver';
 import { validateSchedule, ValidationReport } from '../utils/rulesEngine';
@@ -48,11 +53,24 @@ interface ScheduleContextType {
   validation: ValidationReport;
 
   // Grid editing
-  updateCell: (day: DayOfWeek, slotId: string, classId: string, subjectId: string | null, teacherId: string | null, isLocked?: boolean) => void;
+  updateCell: (
+    day: DayOfWeek,
+    slotId: string,
+    classId: string,
+    subjectId: string | null,
+    teacherId: string | null,
+    isLocked?: boolean
+  ) => void;
   clearCell: (day: DayOfWeek, slotId: string, classId: string) => void;
   toggleLockCell: (day: DayOfWeek, slotId: string, classId: string) => void;
-  swapCells: (source: { day: DayOfWeek; slotId: string; classId: string }, target: { day: DayOfWeek; slotId: string; classId: string }) => void;
-  moveCell: (source: { day: DayOfWeek; slotId: string; classId: string }, target: { day: DayOfWeek; slotId: string; classId: string }) => void;
+  swapCells: (
+    source: { day: DayOfWeek; slotId: string; classId: string },
+    target: { day: DayOfWeek; slotId: string; classId: string }
+  ) => void;
+  moveCell: (
+    source: { day: DayOfWeek; slotId: string; classId: string },
+    target: { day: DayOfWeek; slotId: string; classId: string }
+  ) => void;
 
   // Drag & drop state
   draggingCell: DragItemState | null;
@@ -64,7 +82,7 @@ interface ScheduleContextType {
   setLastSolverResult: (res: SolverResult | null) => void;
 
   // Week CRUD
-  createNewWeek: (title: string, dateRange: string) => WeekSchedule;
+  createNewWeek: (title: string, dateRange: string, mode?: 'placeholder' | 'empty') => WeekSchedule;
   duplicateWeek: (sourceWeekId: string, newTitle: string, newDateRange: string) => WeekSchedule;
   updateActiveWeek: (updated: Partial<WeekSchedule>) => void;
   deleteWeek: (weekId: string) => void;
@@ -84,7 +102,12 @@ interface ScheduleContextType {
   updateSubject: (subject: Subject) => void;
   deleteSubject: (subjectId: string) => void;
 
-  updateLoad: (classId: string, subjectId: string, lessonsPerWeek: number, preferredTeacherId?: string) => void;
+  updateLoad: (
+    classId: string,
+    subjectId: string,
+    lessonsPerWeek: number,
+    preferredTeacherId?: string
+  ) => void;
 
   addRule: (rule: ScheduleRule) => void;
   updateRule: (rule: ScheduleRule) => void;
@@ -104,9 +127,43 @@ interface ScheduleContextType {
 
 const ScheduleContext = createContext<ScheduleContextType | undefined>(undefined);
 
-const STORAGE_KEY_USER = 'prevest_schedule_user_v1';
-const STORAGE_KEY_WEEKS = 'prevest_schedule_weeks_v1';
-const STORAGE_KEY_ACTIVE_WEEK = 'prevest_schedule_active_week_id_v1';
+const STORAGE_KEY_USER = 'prevest_schedule_user_v2';
+const STORAGE_KEY_WEEKS = 'prevest_schedule_weeks_v2';
+const STORAGE_KEY_ACTIVE_WEEK = 'prevest_schedule_active_week_id_v2';
+
+function ensureCoreRules(rules: ScheduleRule[] = []): ScheduleRule[] {
+  const hasTeacherNoDouble = rules.some(
+    (r) => r.type === 'teacher_no_double_booking' || r.id === 'rule_teacher_no_double'
+  );
+  const hasSharedRoom = rules.some(
+    (r) => r.type === 'shared_room' || r.id === 'rule_shared_room'
+  );
+
+  const updated = [...rules];
+  if (!hasTeacherNoDouble) {
+    updated.unshift({
+      id: 'rule_teacher_no_double',
+      name: 'Simultaneidade de Professor (Lei Física)',
+      type: 'teacher_no_double_booking',
+      isMandatory: true,
+      isEnabled: true,
+      description: 'Nenhum professor pode ministrar aulas em duas turmas diferentes no mesmo horário.',
+      parameters: {},
+    });
+  }
+  if (!hasSharedRoom) {
+    updated.splice(1, 0, {
+      id: 'rule_shared_room',
+      name: 'Restrição de Sala Compartilhada',
+      type: 'shared_room',
+      isMandatory: true,
+      isEnabled: true,
+      description: 'Professores vinculados ao mesmo laboratório ou sala inteligente não podem ter aulas simultâneas.',
+      parameters: {},
+    });
+  }
+  return updated;
+}
 
 export const ScheduleProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // User auth
@@ -114,7 +171,6 @@ export const ScheduleProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     try {
       const stored = localStorage.getItem(STORAGE_KEY_USER);
       if (stored) return JSON.parse(stored);
-      // Default demo logged-in user for immediate usability
       return {
         id: 'user_coordenador',
         name: 'Coordenação Pedagógica',
@@ -133,14 +189,18 @@ export const ScheduleProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       const stored = localStorage.getItem(STORAGE_KEY_WEEKS);
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.map((w: WeekSchedule) => ({
+            ...w,
+            rules: ensureCoreRules(w.rules),
+          }));
+        }
       }
     } catch (e) {
       console.error('Failed to load weeks from storage', e);
     }
-    // Seed with realistic default weeks
+    // Seed with initial sample weeks
     const primary = createInitialSampleWeek();
-    // Run solver to pre-populate primary week grid so it's fully populated on first open
     const preSolved = generateScheduleWithSolver(
       primary.activeDays,
       primary.generatedSlots,
@@ -196,7 +256,7 @@ export const ScheduleProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return weeks.find((w) => w.id === activeWeekId) || weeks[0] || null;
   }, [weeks, activeWeekId]);
 
-  // Keep selectedDay in sync if week has 1 day or activeDays changed
+  // Keep selectedDay in sync
   useEffect(() => {
     if (activeWeek && activeWeek.activeDays && activeWeek.activeDays.length > 0) {
       if (activeWeek.activeDays.length === 1) {
@@ -248,30 +308,29 @@ export const ScheduleProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   // Auth actions
   const login = (email: string, name: string = 'Coordenador Pedagógico') => {
-    const session: UserSession = {
+    const newUser: UserSession = {
       id: `user_${Date.now()}`,
       name,
       email,
       role: 'coordenador',
       loggedAt: new Date().toISOString(),
     };
-    setUser(session);
+    setUser(newUser);
   };
 
   const logout = () => {
     setUser(null);
   };
 
-  // Week mutations
+  // Week management
   const updateActiveWeek = useCallback(
-    (updatedFields: Partial<WeekSchedule>) => {
-      if (!activeWeekId) return;
+    (updated: Partial<WeekSchedule>) => {
       setWeeks((prev) =>
         prev.map((w) => {
           if (w.id === activeWeekId) {
             return {
               ...w,
-              ...updatedFields,
+              ...updated,
               updatedAt: new Date().toISOString(),
             };
           }
@@ -282,21 +341,26 @@ export const ScheduleProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     [activeWeekId]
   );
 
-  const createNewWeek = (title: string, dateRange: string): WeekSchedule => {
-    const base = createInitialSampleWeek();
-    const newId = `week_${Date.now()}`;
-    const newWeek: WeekSchedule = {
-      ...base,
-      id: newId,
-      title,
-      dateRange,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      grid: {},
-    };
+  const createNewWeek = (
+    title: string,
+    dateRange: string,
+    mode: 'placeholder' | 'empty' = 'placeholder'
+  ): WeekSchedule => {
+    const newWeek: WeekSchedule =
+      mode === 'empty'
+        ? createEmptySampleWeek(title, dateRange)
+        : {
+            ...createInitialSampleWeek(),
+            id: `week_${Date.now()}`,
+            title,
+            dateRange,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            grid: {},
+          };
 
     setWeeks((prev) => [newWeek, ...prev]);
-    setActiveWeekId(newId);
+    setActiveWeekId(newWeek.id);
     setActiveTab('grade');
     return newWeek;
   };
@@ -320,7 +384,7 @@ export const ScheduleProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   const deleteWeek = (weekId: string) => {
-    if (weeks.length <= 1) return; // Keep at least one
+    if (weeks.length <= 1) return;
     const remaining = weeks.filter((w) => w.id !== weekId);
     setWeeks(remaining);
     if (activeWeekId === weekId) {
@@ -337,6 +401,20 @@ export const ScheduleProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setHistoryIndex((prev) => prev + 1);
   };
 
+  const getAllRelatedClassIds = (classId: string, classes: ClassGroup[]): string[] => {
+    const targetClass = classes.find((c) => c.id === classId);
+    const ids = new Set<string>([classId]);
+    if (targetClass?.isGrouped && targetClass.groupedClassIds) {
+      targetClass.groupedClassIds.forEach((id) => ids.add(id));
+    }
+    const parentGroup = classes.find((c) => c.isGrouped && c.groupedClassIds?.includes(classId));
+    if (parentGroup) {
+      ids.add(parentGroup.id);
+      parentGroup.groupedClassIds?.forEach((id) => ids.add(id));
+    }
+    return Array.from(ids);
+  };
+
   const updateCell = (
     day: DayOfWeek,
     slotId: string,
@@ -348,20 +426,22 @@ export const ScheduleProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (!activeWeek) return;
     const key = `${day}_${slotId}_${classId}`;
     const currentCell = activeWeek.grid[key];
-    const updatedCell: GridCell = {
-      id: currentCell?.id || `cell_${day}_${slotId}_${classId}`,
-      day,
-      slotId,
-      classId,
-      subjectId,
-      teacherId,
-      isLocked: isLocked !== undefined ? isLocked : currentCell?.isLocked || false,
-    };
+    const newLocked = isLocked !== undefined ? isLocked : currentCell?.isLocked || false;
 
-    const newGrid = {
-      ...activeWeek.grid,
-      [key]: updatedCell,
-    };
+    const relatedIds = getAllRelatedClassIds(classId, activeWeek.classes);
+    const newGrid = { ...activeWeek.grid };
+
+    for (const cId of relatedIds) {
+      newGrid[`${day}_${slotId}_${cId}`] = {
+        id: `cell_${day}_${slotId}_${cId}`,
+        day,
+        slotId,
+        classId: cId,
+        subjectId,
+        teacherId,
+        isLocked: newLocked,
+      };
+    }
 
     pushGridHistory(newGrid);
     updateActiveWeek({ grid: newGrid });
@@ -369,21 +449,20 @@ export const ScheduleProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const clearCell = (day: DayOfWeek, slotId: string, classId: string) => {
     if (!activeWeek) return;
-    const key = `${day}_${slotId}_${classId}`;
-    const updatedCell: GridCell = {
-      id: `cell_${day}_${slotId}_${classId}`,
-      day,
-      slotId,
-      classId,
-      subjectId: null,
-      teacherId: null,
-      isLocked: false,
-    };
+    const relatedIds = getAllRelatedClassIds(classId, activeWeek.classes);
+    const newGrid = { ...activeWeek.grid };
 
-    const newGrid = {
-      ...activeWeek.grid,
-      [key]: updatedCell,
-    };
+    for (const cId of relatedIds) {
+      newGrid[`${day}_${slotId}_${cId}`] = {
+        id: `cell_${day}_${slotId}_${cId}`,
+        day,
+        slotId,
+        classId: cId,
+        subjectId: null,
+        teacherId: null,
+        isLocked: false,
+      };
+    }
 
     pushGridHistory(newGrid);
     updateActiveWeek({ grid: newGrid });
@@ -395,13 +474,16 @@ export const ScheduleProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const cell = activeWeek.grid[key];
     if (!cell || !cell.subjectId) return;
 
-    const newGrid = {
-      ...activeWeek.grid,
-      [key]: {
-        ...cell,
-        isLocked: !cell.isLocked,
-      },
-    };
+    const newLocked = !cell.isLocked;
+    const relatedIds = getAllRelatedClassIds(classId, activeWeek.classes);
+    const newGrid = { ...activeWeek.grid };
+
+    for (const cId of relatedIds) {
+      const k = `${day}_${slotId}_${cId}`;
+      if (newGrid[k]) {
+        newGrid[k] = { ...newGrid[k], isLocked: newLocked };
+      }
+    }
 
     updateActiveWeek({ grid: newGrid });
   };
@@ -414,41 +496,36 @@ export const ScheduleProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const sourceKey = `${source.day}_${source.slotId}_${source.classId}`;
     const targetKey = `${target.day}_${target.slotId}_${target.classId}`;
 
-    const sourceCell = activeWeek.grid[sourceKey] || {
-      id: `cell_${sourceKey}`,
-      day: source.day,
-      slotId: source.slotId,
-      classId: source.classId,
-      subjectId: null,
-      teacherId: null,
-      isLocked: false,
-    };
+    const sourceCell = activeWeek.grid[sourceKey];
+    const targetCell = activeWeek.grid[targetKey];
 
-    const targetCell = activeWeek.grid[targetKey] || {
-      id: `cell_${targetKey}`,
-      day: target.day,
-      slotId: target.slotId,
-      classId: target.classId,
-      subjectId: null,
-      teacherId: null,
-      isLocked: false,
-    };
+    const sourceRelated = getAllRelatedClassIds(source.classId, activeWeek.classes);
+    const targetRelated = getAllRelatedClassIds(target.classId, activeWeek.classes);
+    const newGrid = { ...activeWeek.grid };
 
-    const newGrid = {
-      ...activeWeek.grid,
-      [sourceKey]: {
-        ...sourceCell,
-        subjectId: targetCell.subjectId,
-        teacherId: targetCell.teacherId,
-        isLocked: targetCell.isLocked,
-      },
-      [targetKey]: {
-        ...targetCell,
-        subjectId: sourceCell.subjectId,
-        teacherId: sourceCell.teacherId,
-        isLocked: sourceCell.isLocked,
-      },
-    };
+    for (const sId of sourceRelated) {
+      newGrid[`${source.day}_${source.slotId}_${sId}`] = {
+        id: `cell_${source.day}_${source.slotId}_${sId}`,
+        day: source.day,
+        slotId: source.slotId,
+        classId: sId,
+        subjectId: targetCell?.subjectId || null,
+        teacherId: targetCell?.teacherId || null,
+        isLocked: targetCell?.isLocked || false,
+      };
+    }
+
+    for (const tId of targetRelated) {
+      newGrid[`${target.day}_${target.slotId}_${tId}`] = {
+        id: `cell_${target.day}_${target.slotId}_${tId}`,
+        day: target.day,
+        slotId: target.slotId,
+        classId: tId,
+        subjectId: sourceCell?.subjectId || null,
+        teacherId: sourceCell?.teacherId || null,
+        isLocked: sourceCell?.isLocked || false,
+      };
+    }
 
     pushGridHistory(newGrid);
     updateActiveWeek({ grid: newGrid });
@@ -460,29 +537,36 @@ export const ScheduleProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   ) => {
     if (!activeWeek) return;
     const sourceKey = `${source.day}_${source.slotId}_${source.classId}`;
-    const targetKey = `${target.day}_${target.slotId}_${target.classId}`;
-
     const sourceCell = activeWeek.grid[sourceKey];
     if (!sourceCell || !sourceCell.subjectId) return;
 
-    const newGrid = {
-      ...activeWeek.grid,
-      [sourceKey]: {
-        ...sourceCell,
+    const sourceRelated = getAllRelatedClassIds(source.classId, activeWeek.classes);
+    const targetRelated = getAllRelatedClassIds(target.classId, activeWeek.classes);
+    const newGrid = { ...activeWeek.grid };
+
+    for (const sId of sourceRelated) {
+      newGrid[`${source.day}_${source.slotId}_${sId}`] = {
+        id: `cell_${source.day}_${source.slotId}_${sId}`,
+        day: source.day,
+        slotId: source.slotId,
+        classId: sId,
         subjectId: null,
         teacherId: null,
         isLocked: false,
-      },
-      [targetKey]: {
-        id: `cell_${targetKey}`,
+      };
+    }
+
+    for (const tId of targetRelated) {
+      newGrid[`${target.day}_${target.slotId}_${tId}`] = {
+        id: `cell_${target.day}_${target.slotId}_${tId}`,
         day: target.day,
         slotId: target.slotId,
-        classId: target.classId,
+        classId: tId,
         subjectId: sourceCell.subjectId,
         teacherId: sourceCell.teacherId,
         isLocked: false,
-      },
-    };
+      };
+    }
 
     pushGridHistory(newGrid);
     updateActiveWeek({ grid: newGrid });
@@ -557,8 +641,25 @@ export const ScheduleProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const addClassGroup = (cls: ClassGroup) => {
     if (!activeWeek) return;
+    let newLoads = [...activeWeek.loads];
+    if (cls.isGrouped && cls.groupedClassIds && cls.groupedClassIds.length > 0) {
+      // Check if group already has loads
+      const existingGroupLoads = activeWeek.loads.filter((l) => l.classId === cls.id);
+      if (existingGroupLoads.length === 0) {
+        // Clone loads from the first member class
+        const firstMemberLoads = activeWeek.loads.filter((l) => l.classId === cls.groupedClassIds![0]);
+        const cloned = firstMemberLoads.map((l) => ({
+          ...l,
+          id: `load_${cls.id}_${l.subjectId}`,
+          classId: cls.id,
+        }));
+        newLoads = [...newLoads, ...cloned];
+      }
+    }
+
     updateActiveWeek({
       classes: [...activeWeek.classes, cls],
+      loads: newLoads,
     });
   };
 
@@ -627,7 +728,12 @@ export const ScheduleProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     });
   };
 
-  const updateLoad = (classId: string, subjectId: string, lessonsPerWeek: number, preferredTeacherId?: string) => {
+  const updateLoad = (
+    classId: string,
+    subjectId: string,
+    lessonsPerWeek: number,
+    preferredTeacherId?: string
+  ) => {
     if (!activeWeek) return;
     const existing = activeWeek.loads.find((l) => l.classId === classId && l.subjectId === subjectId);
     let newLoads: SubjectLoad[];

@@ -66,7 +66,7 @@ export interface Subject {
   shortName: string; // "Fís 1"
   color: string; // hex or tailwind class
   isHeavy: boolean; // "pesada" for consecutive rule
-  area?: 'Exatas' | 'Biológicas' | 'Humanas' | 'Linguagens';
+  area?: 'Exatas' | 'Biológicas' | 'Humanas' | 'Linguagens' | 'Diversas' | 'Geral';
 }
 
 export interface SharedRoom {

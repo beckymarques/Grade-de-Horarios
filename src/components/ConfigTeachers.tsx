@@ -503,13 +503,28 @@ export const ConfigTeachers: React.FC = () => {
                     )}
 
                     {teacher.absences && teacher.absences.length > 0 && (
-                      <div className="flex flex-wrap gap-1 pt-1">
+                      <div className="flex flex-wrap items-center gap-1 pt-1">
+                        <span className="text-[11px] font-medium text-slate-500 mr-1">Ausências:</span>
                         {teacher.absences.map((a, idx) => (
                           <span
                             key={idx}
-                            className="text-[10px] bg-rose-100 text-rose-800 font-semibold px-2 py-0.5 rounded-full"
+                            className="inline-flex items-center gap-1 text-[10px] bg-rose-100 text-rose-800 font-semibold px-2 py-0.5 rounded-full border border-rose-200"
                           >
-                            ⚠️ Ausência: {a.day} {a.allDay ? '(Dia Todo)' : ''}
+                            <span>⚠️ {a.day} {a.allDay ? '(Dia Todo)' : ''}</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const updatedAbsences = teacher.absences?.filter((ab) => ab.day !== a.day) || [];
+                                updateTeacher({
+                                  ...teacher,
+                                  absences: updatedAbsences,
+                                });
+                              }}
+                              className="hover:bg-rose-200 rounded-full p-0.5 text-rose-700"
+                              title={`Remover ausência de ${a.day}`}
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
                           </span>
                         ))}
                       </div>

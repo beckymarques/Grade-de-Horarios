@@ -11,34 +11,41 @@ import {
 } from '../types';
 import { calculateTimeSlots } from '../utils/timeCalculator';
 
+// Exactly the 10 most common subjects requested:
+// Português, Matemática, Física, Química, Biologia, História, Geografia, Redação, Inglês e Educação Física
 export const INITIAL_SUBJECTS: Subject[] = [
-  { id: 'sub_mat1', name: 'Matemática 1 (Álgebra & Funções)', shortName: 'Mat 1', color: '#2563eb', isHeavy: true, area: 'Exatas' },
-  { id: 'sub_mat2', name: 'Matemática 2 (Geometria & Trig.)', shortName: 'Mat 2', color: '#1d4ed8', isHeavy: true, area: 'Exatas' },
-  { id: 'sub_fis1', name: 'Física 1 (Mecânica & Ondulatória)', shortName: 'Fís 1', color: '#0891b2', isHeavy: true, area: 'Exatas' },
-  { id: 'sub_fis2', name: 'Física 2 (Eletromagnetismo & Termo)', shortName: 'Fís 2', color: '#0284c7', isHeavy: true, area: 'Exatas' },
-  { id: 'sub_quim_geral', name: 'Química Geral & Inorgânica', shortName: 'Quím 1', color: '#059669', isHeavy: true, area: 'Biológicas' },
-  { id: 'sub_quim_org', name: 'Química Orgânica & Físico-Química', shortName: 'Quím 2', color: '#10b981', isHeavy: true, area: 'Biológicas' },
-  { id: 'sub_bio1', name: 'Biologia 1 (Citologia & Genética)', shortName: 'Bio 1', color: '#16a34a', isHeavy: false, area: 'Biológicas' },
-  { id: 'sub_bio2', name: 'Biologia 2 (Ecologia & Fisiologia)', shortName: 'Bio 2', color: '#65a30d', isHeavy: false, area: 'Biológicas' },
-  { id: 'sub_redacao', name: 'Redação & Produção Textual', shortName: 'Redação', color: '#dc2626', isHeavy: false, area: 'Linguagens' },
-  { id: 'sub_gramatica', name: 'Gramática & Interpretação', shortName: 'Português', color: '#e11d48', isHeavy: false, area: 'Linguagens' },
-  { id: 'sub_literatura', name: 'Literatura Brasileira & Obras', shortName: 'Literatura', color: '#c026d3', isHeavy: false, area: 'Linguagens' },
-  { id: 'sub_historia', name: 'História Geral & do Brasil', shortName: 'História', color: '#d97706', isHeavy: false, area: 'Humanas' },
-  { id: 'sub_geografia', name: 'Geografia Geral & Geopolítica', shortName: 'Geografia', color: '#b45309', isHeavy: false, area: 'Humanas' },
-  { id: 'sub_filo_socio', name: 'Filosofia & Sociologia', shortName: 'Filo/Sócio', color: '#7c3aed', isHeavy: false, area: 'Humanas' },
+  { id: 'sub_port', name: 'Português', shortName: 'Português', color: '#e11d48', isHeavy: false, area: 'Linguagens' },
+  { id: 'sub_mat', name: 'Matemática', shortName: 'Matemática', color: '#2563eb', isHeavy: true, area: 'Exatas' },
+  { id: 'sub_fis', name: 'Física', shortName: 'Física', color: '#0891b2', isHeavy: true, area: 'Exatas' },
+  { id: 'sub_quim', name: 'Química', shortName: 'Química', color: '#059669', isHeavy: true, area: 'Biológicas' },
+  { id: 'sub_bio', name: 'Biologia', shortName: 'Biologia', color: '#16a34a', isHeavy: false, area: 'Biológicas' },
+  { id: 'sub_hist', name: 'História', shortName: 'História', color: '#d97706', isHeavy: false, area: 'Humanas' },
+  { id: 'sub_geo', name: 'Geografia', shortName: 'Geografia', color: '#b45309', isHeavy: false, area: 'Humanas' },
+  { id: 'sub_red', name: 'Redação', shortName: 'Redação', color: '#dc2626', isHeavy: false, area: 'Linguagens' },
+  { id: 'sub_ing', name: 'Inglês', shortName: 'Inglês', color: '#8b5cf6', isHeavy: false, area: 'Linguagens' },
+  { id: 'sub_edfis', name: 'Educação Física', shortName: 'Ed. Física', color: '#ea580c', isHeavy: false, area: 'Diversas' },
 ];
 
 export const INITIAL_SHARED_ROOMS: SharedRoom[] = [
-  { id: 'room_lab', name: 'Laboratório de Ciências / Sala 3D', teacherIds: ['tea_quim_ana', 'tea_fis_marcos'] },
-  { id: 'room_smart', name: 'Sala Smart Interativa 1', teacherIds: ['tea_mat_carlos', 'tea_mat_roberto'] },
+  { id: 'room_lab', name: 'Laboratório de Ciências', teacherIds: ['tea_quim_ana', 'tea_fis_marcos'] },
+  { id: 'room_smart', name: 'Sala Multimídia / Smart 1', teacherIds: ['tea_mat_carlos', 'tea_ing_daniel'] },
 ];
 
 export const INITIAL_TEACHERS: Teacher[] = [
   {
+    id: 'tea_port_luciana',
+    name: 'Profa. Luciana Meirelles',
+    shortName: 'Luciana (Port)',
+    subjectIds: ['sub_port'],
+    absences: [],
+    maxConsecutiveLessons: 3,
+    email: 'luciana.port@cursinho.com.br',
+  },
+  {
     id: 'tea_mat_carlos',
     name: 'Prof. Carlos Eduardo',
     shortName: 'Carlos (Mat)',
-    subjectIds: ['sub_mat1', 'sub_mat2'],
+    subjectIds: ['sub_mat'],
     sharedRoomId: 'room_smart',
     absences: [{ day: 'SEX', allDay: true, reason: 'Reunião de Coordenação Externa' }],
     maxConsecutiveLessons: 3,
@@ -48,8 +55,7 @@ export const INITIAL_TEACHERS: Teacher[] = [
     id: 'tea_mat_roberto',
     name: 'Prof. Roberto Silva',
     shortName: 'Roberto (Mat)',
-    subjectIds: ['sub_mat1', 'sub_mat2'],
-    sharedRoomId: 'room_smart',
+    subjectIds: ['sub_mat'],
     absences: [],
     maxConsecutiveLessons: 3,
     email: 'roberto.mat@cursinho.com.br',
@@ -58,81 +64,36 @@ export const INITIAL_TEACHERS: Teacher[] = [
     id: 'tea_fis_marcos',
     name: 'Prof. Marcos Rocha',
     shortName: 'Marcos (Fís)',
-    subjectIds: ['sub_fis1', 'sub_fis2'],
+    subjectIds: ['sub_fis'],
     sharedRoomId: 'room_lab',
     absences: [{ day: 'QUA', allDay: false, slotIds: ['lesson_5', 'lesson_6'], reason: 'Plantão de Dúvidas' }],
     maxConsecutiveLessons: 3,
     email: 'marcos.fis@cursinho.com.br',
   },
   {
-    id: 'tea_fis_julio',
-    name: 'Prof. Júlio Mendes',
-    shortName: 'Júlio (Fís)',
-    subjectIds: ['sub_fis1', 'sub_fis2'],
-    absences: [],
-    maxConsecutiveLessons: 2,
-    email: 'julio.fis@cursinho.com.br',
-  },
-  {
     id: 'tea_quim_ana',
     name: 'Profa. Ana Carolina',
     shortName: 'Ana (Quím)',
-    subjectIds: ['sub_quim_geral', 'sub_quim_org'],
+    subjectIds: ['sub_quim'],
     sharedRoomId: 'room_lab',
     absences: [{ day: 'SEG', allDay: false, slotIds: ['lesson_1', 'lesson_2'], reason: 'Mestrado USP' }],
     maxConsecutiveLessons: 3,
     email: 'ana.quim@cursinho.com.br',
   },
   {
-    id: 'tea_quim_renato',
-    name: 'Prof. Renato Gusmão',
-    shortName: 'Renato (Quím)',
-    subjectIds: ['sub_quim_geral', 'sub_quim_org'],
-    absences: [],
-    maxConsecutiveLessons: 3,
-    email: 'renato.quim@cursinho.com.br',
-  },
-  {
     id: 'tea_bio_patricia',
     name: 'Profa. Patrícia Lima',
     shortName: 'Patrícia (Bio)',
-    subjectIds: ['sub_bio1', 'sub_bio2'],
+    subjectIds: ['sub_bio'],
     absences: [],
     maxConsecutiveLessons: 3,
     email: 'patricia.bio@cursinho.com.br',
   },
   {
-    id: 'tea_bio_bruno',
-    name: 'Prof. Bruno Albuquerque',
-    shortName: 'Bruno (Bio)',
-    subjectIds: ['sub_bio1', 'sub_bio2'],
-    absences: [{ day: 'QUI', allDay: true, reason: 'Congresso de Genética' }],
-    maxConsecutiveLessons: 3,
-    email: 'bruno.bio@cursinho.com.br',
-  },
-  {
-    id: 'tea_red_fernanda',
-    name: 'Profa. Fernanda Castro',
-    shortName: 'Fernanda (Red)',
-    subjectIds: ['sub_redacao'],
-    absences: [],
-    maxConsecutiveLessons: 3,
-    email: 'fernanda.red@cursinho.com.br',
-  },
-  {
-    id: 'tea_port_luciana',
-    name: 'Profa. Luciana Meirelles',
-    shortName: 'Luciana (Port/Lit)',
-    subjectIds: ['sub_gramatica', 'sub_literatura'],
-    absences: [],
-    maxConsecutiveLessons: 3,
-    email: 'luciana.port@cursinho.com.br',
-  },
-  {
     id: 'tea_hist_sergio',
     name: 'Prof. Sérgio Nogueira',
     shortName: 'Sérgio (Hist)',
-    subjectIds: ['sub_historia'],
+    subjectIds: ['sub_hist'],
     absences: [],
     maxConsecutiveLessons: 3,
     email: 'sergio.hist@cursinho.com.br',
@@ -141,33 +102,51 @@ export const INITIAL_TEACHERS: Teacher[] = [
     id: 'tea_geo_tiago',
     name: 'Prof. Tiago Ferreira',
     shortName: 'Tiago (Geo)',
-    subjectIds: ['sub_geografia'],
+    subjectIds: ['sub_geo'],
     absences: [],
     maxConsecutiveLessons: 3,
     email: 'tiago.geo@cursinho.com.br',
   },
   {
-    id: 'tea_socio_camila',
-    name: 'Profa. Camila Dias',
-    shortName: 'Camila (Filo/Soc)',
-    subjectIds: ['sub_filo_socio'],
+    id: 'tea_red_fernanda',
+    name: 'Profa. Fernanda Castro',
+    shortName: 'Fernanda (Red)',
+    subjectIds: ['sub_red'],
     absences: [],
     maxConsecutiveLessons: 3,
-    email: 'camila.socio@cursinho.com.br',
+    email: 'fernanda.red@cursinho.com.br',
+  },
+  {
+    id: 'tea_ing_daniel',
+    name: 'Prof. Daniel Vieira',
+    shortName: 'Daniel (Ing)',
+    subjectIds: ['sub_ing'],
+    sharedRoomId: 'room_smart',
+    absences: [],
+    maxConsecutiveLessons: 3,
+    email: 'daniel.ing@cursinho.com.br',
+  },
+  {
+    id: 'tea_edfis_rodrigo',
+    name: 'Prof. Rodrigo Santos',
+    shortName: 'Rodrigo (Ed.Fís)',
+    subjectIds: ['sub_edfis'],
+    absences: [],
+    maxConsecutiveLessons: 3,
+    email: 'rodrigo.edfis@cursinho.com.br',
   },
 ];
 
 export const INITIAL_CLASSES: ClassGroup[] = [
-  { id: 'cls_macc01', name: 'MACC01 (Medicina)', color: '#2563eb', isGrouped: false, defaultRoom: 'Sala 101' },
-  { id: 'cls_macc02', name: 'MACC02 (Medicina)', color: '#0284c7', isGrouped: false, defaultRoom: 'Sala 102' },
-  { id: 'cls_ext01', name: 'EXT01 (Extensivo Geral)', color: '#059669', isGrouped: false, defaultRoom: 'Sala 201' },
-  { id: 'cls_ita_ime', name: 'ITA / IME (Engenharias)', color: '#7c3aed', isGrouped: false, defaultRoom: 'Auditório Alpha' },
+  { id: 'cls_1em', name: '1º Ano EM (Turma A)', color: '#2563eb', isGrouped: false, defaultRoom: 'Sala 101' },
+  { id: 'cls_2em', name: '2º Ano EM (Turma B)', color: '#0284c7', isGrouped: false, defaultRoom: 'Sala 102' },
+  { id: 'cls_3em', name: '3º Ano / Terceirão (Turma C)', color: '#059669', isGrouped: false, defaultRoom: 'Sala 201' },
   {
-    id: 'cls_macc_agrupada',
-    name: 'MACC01/02 (Auditório)',
+    id: 'cls_agrupada',
+    name: '1º e 2º Ano (Auditório)',
     color: '#0d9488',
     isGrouped: true,
-    groupedClassIds: ['cls_macc01', 'cls_macc02'],
+    groupedClassIds: ['cls_1em', 'cls_2em'],
     defaultRoom: 'Auditório Nobre',
   },
 ];
@@ -181,7 +160,7 @@ export const INITIAL_TIME_CONFIG: DayTimeConfig = {
   ],
   events: [
     { id: 'evt_lunch_main', name: 'Almoço', afterLessonNumber: 3, durationMinutes: 60, isLunch: true },
-    { id: 'evt_1', name: 'Orientação Acadêmica', afterLessonNumber: 6, durationMinutes: 50 },
+    { id: 'evt_1', name: 'Orientação de Estudos', afterLessonNumber: 6, durationMinutes: 50 },
   ],
   roundToFiveMinutes: true,
   useCustomLessonDuration: false,
@@ -234,22 +213,13 @@ export const INITIAL_RULES: ScheduleRule[] = [
     parameters: { maxConsecutive: 3 },
   },
   {
-    id: 'rule_no_mat_last_slot',
-    name: 'Proibido Matemática no 6º Tempo da Sexta-Feira',
-    type: 'forbidden_slot',
-    isMandatory: false,
-    isEnabled: true,
-    description: 'Turmas não devem ter aula pesada de Matemática no último tempo da sexta-feira.',
-    parameters: { subjectId: 'sub_mat1', day: 'SEX', slotId: 'lesson_6' },
-  },
-  {
     id: 'rule_redacao_fixa',
-    name: 'Redação Fixa na Quarta-feira (MACC01)',
+    name: 'Redação Fixa na Quarta-feira (1º Ano)',
     type: 'fixed_slot',
     isMandatory: true,
     isEnabled: true,
-    description: 'Fixa o horário de produção de Redação no 1º tempo de Quarta para MACC01.',
-    parameters: { classId: 'cls_macc01', subjectId: 'sub_redacao', teacherId: 'tea_red_fernanda', day: 'QUA', slotId: 'lesson_1' },
+    description: 'Fixa o horário de produção de Redação no 1º tempo de Quarta para o 1º Ano.',
+    parameters: { classId: 'cls_1em', subjectId: 'sub_red', teacherId: 'tea_red_fernanda', day: 'QUA', slotId: 'lesson_1' },
   },
 ];
 
@@ -258,32 +228,17 @@ export function createInitialLoads(): SubjectLoad[] {
   const classes = INITIAL_CLASSES.filter((c) => !c.isGrouped);
 
   classes.forEach((cls) => {
-    if (cls.id === 'cls_ita_ime') {
-      // High focus on math, physics, chemistry
-      loads.push({ id: `load_${cls.id}_mat1`, classId: cls.id, subjectId: 'sub_mat1', lessonsPerWeek: 5 });
-      loads.push({ id: `load_${cls.id}_mat2`, classId: cls.id, subjectId: 'sub_mat2', lessonsPerWeek: 4 });
-      loads.push({ id: `load_${cls.id}_fis1`, classId: cls.id, subjectId: 'sub_fis1', lessonsPerWeek: 5 });
-      loads.push({ id: `load_${cls.id}_fis2`, classId: cls.id, subjectId: 'sub_fis2', lessonsPerWeek: 4 });
-      loads.push({ id: `load_${cls.id}_quim1`, classId: cls.id, subjectId: 'sub_quim_geral', lessonsPerWeek: 4 });
-      loads.push({ id: `load_${cls.id}_quim2`, classId: cls.id, subjectId: 'sub_quim_org', lessonsPerWeek: 3 });
-      loads.push({ id: `load_${cls.id}_red`, classId: cls.id, subjectId: 'sub_redacao', lessonsPerWeek: 2 });
-      loads.push({ id: `load_${cls.id}_port`, classId: cls.id, subjectId: 'sub_gramatica', lessonsPerWeek: 2 });
-    } else {
-      // Balanced pré-vestibular curriculum (30 lessons / week)
-      loads.push({ id: `load_${cls.id}_mat1`, classId: cls.id, subjectId: 'sub_mat1', lessonsPerWeek: 3 });
-      loads.push({ id: `load_${cls.id}_mat2`, classId: cls.id, subjectId: 'sub_mat2', lessonsPerWeek: 2 });
-      loads.push({ id: `load_${cls.id}_fis1`, classId: cls.id, subjectId: 'sub_fis1', lessonsPerWeek: 3 });
-      loads.push({ id: `load_${cls.id}_fis2`, classId: cls.id, subjectId: 'sub_fis2', lessonsPerWeek: 2 });
-      loads.push({ id: `load_${cls.id}_quim1`, classId: cls.id, subjectId: 'sub_quim_geral', lessonsPerWeek: 3 });
-      loads.push({ id: `load_${cls.id}_quim2`, classId: cls.id, subjectId: 'sub_quim_org', lessonsPerWeek: 2 });
-      loads.push({ id: `load_${cls.id}_bio1`, classId: cls.id, subjectId: 'sub_bio1', lessonsPerWeek: 3 });
-      loads.push({ id: `load_${cls.id}_bio2`, classId: cls.id, subjectId: 'sub_bio2', lessonsPerWeek: 2 });
-      loads.push({ id: `load_${cls.id}_red`, classId: cls.id, subjectId: 'sub_redacao', lessonsPerWeek: 2 });
-      loads.push({ id: `load_${cls.id}_port`, classId: cls.id, subjectId: 'sub_gramatica', lessonsPerWeek: 2 });
-      loads.push({ id: `load_${cls.id}_lit`, classId: cls.id, subjectId: 'sub_literatura', lessonsPerWeek: 2 });
-      loads.push({ id: `load_${cls.id}_hist`, classId: cls.id, subjectId: 'sub_historia', lessonsPerWeek: 2 });
-      loads.push({ id: `load_${cls.id}_geo`, classId: cls.id, subjectId: 'sub_geografia', lessonsPerWeek: 2 });
-    }
+    // 30 lessons per week distributed across the 10 subjects
+    loads.push({ id: `load_${cls.id}_port`, classId: cls.id, subjectId: 'sub_port', lessonsPerWeek: 4 });
+    loads.push({ id: `load_${cls.id}_mat`, classId: cls.id, subjectId: 'sub_mat', lessonsPerWeek: 5 });
+    loads.push({ id: `load_${cls.id}_fis`, classId: cls.id, subjectId: 'sub_fis', lessonsPerWeek: 3 });
+    loads.push({ id: `load_${cls.id}_quim`, classId: cls.id, subjectId: 'sub_quim', lessonsPerWeek: 3 });
+    loads.push({ id: `load_${cls.id}_bio`, classId: cls.id, subjectId: 'sub_bio', lessonsPerWeek: 3 });
+    loads.push({ id: `load_${cls.id}_hist`, classId: cls.id, subjectId: 'sub_hist', lessonsPerWeek: 3 });
+    loads.push({ id: `load_${cls.id}_geo`, classId: cls.id, subjectId: 'sub_geo', lessonsPerWeek: 3 });
+    loads.push({ id: `load_${cls.id}_red`, classId: cls.id, subjectId: 'sub_red', lessonsPerWeek: 2 });
+    loads.push({ id: `load_${cls.id}_ing`, classId: cls.id, subjectId: 'sub_ing', lessonsPerWeek: 2 });
+    loads.push({ id: `load_${cls.id}_edfis`, classId: cls.id, subjectId: 'sub_edfis', lessonsPerWeek: 2 });
   });
 
   return loads;
@@ -296,7 +251,7 @@ export function createInitialSampleWeek(): WeekSchedule {
 
   const sampleWeek: WeekSchedule = {
     id: 'week_2026_33',
-    title: 'Grade 15/08/26 — Semana 33 (Medicina & ITA)',
+    title: 'Grade Semanal — Ensino Médio & Vestibular',
     dateRange: '15/08/2026 a 21/08/2026',
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -318,7 +273,31 @@ export function createInitialSampleWeek(): WeekSchedule {
 export function createSecondarySampleWeek(): WeekSchedule {
   const sample = createInitialSampleWeek();
   sample.id = 'week_2026_32';
-  sample.title = 'Grade 08/08/26 — Semana 32 (Anterior)';
+  sample.title = 'Grade Anterior — Semana 32';
   sample.dateRange = '08/08/2026 a 14/08/2026';
   return sample;
+}
+
+export function createEmptySampleWeek(title: string = 'Nova Grade em Branco', dateRange: string = 'Próxima Semana'): WeekSchedule {
+  const timeCalc = calculateTimeSlots(INITIAL_TIME_CONFIG);
+  const activeDays = ['SEG', 'TER', 'QUA', 'QUI', 'SEX'] as const;
+  const newId = `week_${Date.now()}`;
+
+  return {
+    id: newId,
+    title,
+    dateRange,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    activeDays: [...activeDays],
+    timeConfig: INITIAL_TIME_CONFIG,
+    generatedSlots: timeCalc.slots,
+    classes: [],
+    subjects: [],
+    teachers: [],
+    sharedRooms: [],
+    loads: [],
+    rules: INITIAL_RULES,
+    grid: {},
+  };
 }

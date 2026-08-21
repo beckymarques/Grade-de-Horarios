@@ -12,13 +12,13 @@ import { useSchedule } from '../context/ScheduleContext';
 import { DayOfWeek, DAYS_OF_WEEK } from '../types';
 
 interface ConflictDrawerProps {
-  isOpen: boolean;
+  isOpen?: boolean;
   onClose: () => void;
   onSelectCell?: (day: DayOfWeek, slotId: string, classId: string) => void;
 }
 
 export const ConflictDrawer: React.FC<ConflictDrawerProps> = ({
-  isOpen,
+  isOpen = true,
   onClose,
   onSelectCell,
 }) => {
@@ -51,10 +51,10 @@ export const ConflictDrawer: React.FC<ConflictDrawerProps> = ({
             </div>
             <div>
               <h2 className="text-sm font-bold text-slate-900">
-                Painel de Validação & Conflitos
+                Painel de Conflitos & Validação
               </h2>
               <p className="text-xs text-slate-500">
-                Verificação em tempo real da grade semanal
+                Verificação minuciosa em tempo real da grade
               </p>
             </div>
           </div>
@@ -95,7 +95,7 @@ export const ConflictDrawer: React.FC<ConflictDrawerProps> = ({
                 <div className="space-y-2">
                   <div className="text-xs font-bold uppercase tracking-wider text-rose-700 flex items-center gap-1.5">
                     <AlertTriangle className="w-3.5 h-3.5" />
-                    Erros Críticos (Impossibilitam a Grade)
+                    Erros Críticos ({errors.length})
                   </div>
                   {errors.map((conflict) => {
                     const dayLabel = DAYS_OF_WEEK.find((d) => d.key === conflict.day)?.short || conflict.day;
@@ -106,10 +106,10 @@ export const ConflictDrawer: React.FC<ConflictDrawerProps> = ({
                       <div
                         key={conflict.id}
                         onClick={() => handleJumpToCell(conflict)}
-                        className="p-3 bg-rose-50/70 border border-rose-200 rounded-xl hover:bg-rose-100/70 transition cursor-pointer group"
+                        className="p-3 bg-rose-50/80 border border-rose-200 rounded-xl hover:bg-rose-100/90 transition cursor-pointer group"
                       >
                         <div className="flex items-start justify-between gap-2">
-                          <span className="text-xs font-bold text-rose-800">
+                          <span className="text-xs font-bold text-rose-900">
                             {conflict.ruleName}
                           </span>
                           <span className="text-[10px] bg-rose-200 text-rose-900 font-semibold px-2 py-0.5 rounded-full shrink-0">
@@ -121,7 +121,7 @@ export const ConflictDrawer: React.FC<ConflictDrawerProps> = ({
                         </p>
                         {conflict.suggestion && (
                           <div className="mt-2 p-2 bg-rose-100/70 border border-rose-300/50 rounded-lg text-[11px] text-rose-950 font-medium">
-                            {conflict.suggestion}
+                            💡 {conflict.suggestion}
                           </div>
                         )}
                         {className && (
@@ -141,7 +141,7 @@ export const ConflictDrawer: React.FC<ConflictDrawerProps> = ({
                 <div className="space-y-2 pt-2">
                   <div className="text-xs font-bold uppercase tracking-wider text-amber-700 flex items-center gap-1.5">
                     <Info className="w-3.5 h-3.5" />
-                    Avisos de Otimização & Preferências
+                    Avisos de Otimização ({warnings.length})
                   </div>
                   {warnings.map((conflict) => {
                     const dayLabel = DAYS_OF_WEEK.find((d) => d.key === conflict.day)?.short || conflict.day;
@@ -152,10 +152,10 @@ export const ConflictDrawer: React.FC<ConflictDrawerProps> = ({
                       <div
                         key={conflict.id}
                         onClick={() => handleJumpToCell(conflict)}
-                        className="p-3 bg-amber-50/70 border border-amber-200 rounded-xl hover:bg-amber-100/70 transition cursor-pointer group"
+                        className="p-3 bg-amber-50/80 border border-amber-200 rounded-xl hover:bg-amber-100/90 transition cursor-pointer group"
                       >
                         <div className="flex items-start justify-between gap-2">
-                          <span className="text-xs font-bold text-amber-900">
+                          <span className="text-xs font-bold text-amber-950">
                             {conflict.ruleName}
                           </span>
                           <span className="text-[10px] bg-amber-200 text-amber-900 font-semibold px-2 py-0.5 rounded-full shrink-0">
@@ -167,7 +167,7 @@ export const ConflictDrawer: React.FC<ConflictDrawerProps> = ({
                         </p>
                         {conflict.suggestion && (
                           <div className="mt-2 p-2 bg-amber-100/70 border border-amber-300/50 rounded-lg text-[11px] text-amber-950 font-medium">
-                            {conflict.suggestion}
+                            💡 {conflict.suggestion}
                           </div>
                         )}
                         {className && (

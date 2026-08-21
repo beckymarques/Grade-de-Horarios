@@ -9,6 +9,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { useSchedule } from '../context/ScheduleContext';
+import { getDisplayClasses } from '../types';
 
 export const ConfigLoads: React.FC = () => {
   const { activeWeek, updateLoad, updateActiveWeek } = useSchedule();
@@ -18,21 +19,29 @@ export const ConfigLoads: React.FC = () => {
 
   if (!activeWeek) return null;
 
-  const standardClasses = activeWeek.classes.filter((c) => !c.isGrouped);
-  const currentClassId = selectedClassId || standardClasses[0]?.id || activeWeek.classes[0]?.id;
+  const displayClasses = getDisplayClasses(activeWeek.classes);
+  const currentClassId = selectedClassId || displayClasses[0]?.id || activeWeek.classes[0]?.id;
   const currentClass = activeWeek.classes.find((c) => c.id === currentClassId);
 
   const lessonSlotsCount = activeWeek.generatedSlots.filter((s) => s.type === 'lesson').length;
   const totalSlotsInWeek = activeWeek.activeDays.length * lessonSlotsCount;
 
-  // Compute total configured loads for current class
-  const classLoads = activeWeek.loads.filter((l) => l.classId === currentClassId);
+  // Compute total configured loads for current class strictly for its unified ID
+  let classLoads = activeWeek.loads.filter((l) => l.classId === currentClassId);
+  if (classLoads.length === 0 && currentClass?.isGrouped && currentClass.groupedClassIds && currentClass.groupedClassIds.length > 0) {
+    classLoads = activeWeek.loads.filter((l) => l.classId === currentClass.groupedClassIds![0]);
+  }
   const totalClassLoad = classLoads.reduce((sum, l) => sum + (l.lessonsPerWeek || 0), 0);
 
   const handleCopyLoads = () => {
     if (!sourceClassToCopy || !currentClassId || sourceClassToCopy === currentClassId) return;
 
-    const sourceLoads = activeWeek.loads.filter((l) => l.classId === sourceClassToCopy);
+    let sourceLoads = activeWeek.loads.filter((l) => l.classId === sourceClassToCopy);
+    const sourceClass = activeWeek.classes.find((c) => c.id === sourceClassToCopy);
+    if (sourceLoads.length === 0 && sourceClass?.isGrouped && sourceClass.groupedClassIds && sourceClass.groupedClassIds.length > 0) {
+      sourceLoads = activeWeek.loads.filter((l) => l.classId === sourceClass.groupedClassIds![0]);
+    }
+
     const otherLoads = activeWeek.loads.filter((l) => l.classId !== currentClassId);
 
     const clonedLoads = sourceLoads.map((l) => ({
@@ -85,9 +94,12 @@ export const ConfigLoads: React.FC = () => {
       {/* Class Selector Tabs & Copy Action */}
       <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-4">
         <div className="flex items-center gap-1.5 overflow-x-auto w-full sm:w-auto scrollbar-none">
-          {standardClasses.map((cls) => {
+          {displayClasses.map((cls) => {
             const isSelected = cls.id === currentClassId;
-            const cLoads = activeWeek.loads.filter((l) => l.classId === cls.id);
+            let cLoads = activeWeek.loads.filter((l) => l.classId === cls.id);
+            if (cLoads.length === 0 && cls.isGrouped && cls.groupedClassIds && cls.groupedClassIds.length > 0) {
+              cLoads = activeWeek.loads.filter((l) => l.classId === cls.groupedClassIds![0]);
+            }
             const sum = cLoads.reduce((acc, cur) => acc + cur.lessonsPerWeek, 0);
 
             return (
@@ -117,7 +129,7 @@ export const ConfigLoads: React.FC = () => {
             className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-white"
           >
             <option value="">Copiar carga de...</option>
-            {standardClasses
+            {displayClasses
               .filter((c) => c.id !== currentClassId)
               .map((c) => (
                 <option key={c.id} value={c.id}>

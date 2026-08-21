@@ -12,6 +12,8 @@ import {
   CheckCircle2,
   AlertTriangle,
   ArrowRight,
+  Sparkles,
+  FileCode,
 } from 'lucide-react';
 import { useSchedule } from '../context/ScheduleContext';
 import { GridCell } from '../types';
@@ -33,11 +35,12 @@ export const WeeksList: React.FC = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newDateRange, setNewDateRange] = useState('');
+  const [creationMode, setCreationMode] = useState<'placeholder' | 'empty'>('placeholder');
 
   const handleDuplicate = (weekId: string) => {
     const source = weeks.find((w) => w.id === weekId);
     if (!source) return;
-    const duplicated = duplicateWeek(
+    duplicateWeek(
       source.id,
       `Grade Cópia de ${source.title}`,
       source.dateRange
@@ -47,9 +50,10 @@ export const WeeksList: React.FC = () => {
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTitle.trim()) return;
-    createNewWeek(newTitle, newDateRange || 'Próxima Semana');
+    createNewWeek(newTitle, newDateRange || 'Próxima Semana', creationMode);
     setNewTitle('');
     setNewDateRange('');
+    setCreationMode('placeholder');
     setShowCreateModal(false);
   };
 
@@ -125,7 +129,7 @@ export const WeeksList: React.FC = () => {
             className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-xs transition"
           >
             <Plus className="w-4 h-4" />
-            Nova Semana do Zero
+            Nova Semana
           </button>
         </div>
       </div>
@@ -134,7 +138,6 @@ export const WeeksList: React.FC = () => {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {weeks.map((week) => {
           const isActive = week.id === activeWeekId;
-          const lessonSlots = week.generatedSlots.filter((s) => s.type === 'lesson');
           const totalCellsWithSubject = (Object.values(week.grid || {}) as GridCell[]).filter(
             (c) => c?.subjectId
           ).length;
@@ -224,14 +227,15 @@ export const WeeksList: React.FC = () => {
       {/* Create Week Modal */}
       {showCreateModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-slate-200">
-            <h3 className="text-base font-bold text-slate-900 mb-2">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
+            <h3 className="text-base font-bold text-slate-900 mb-1">
               Cadastrar Nova Grade Semanal
             </h3>
-            <p className="text-xs text-slate-600 mb-4">
-              Dica: Se você já tem uma semana anterior, prefira usar o botão "Duplicar" para não precisar recadastrar turmas e professores.
+            <p className="text-xs text-slate-500 mb-4">
+              Escolha o título, período e o modelo inicial da semana.
             </p>
-            <form onSubmit={handleCreate} className="space-y-3">
+
+            <form onSubmit={handleCreate} className="space-y-4">
               <div>
                 <label className="block text-xs font-medium text-slate-700 mb-1">
                   Título da Grade *
@@ -259,7 +263,51 @@ export const WeeksList: React.FC = () => {
                 />
               </div>
 
-              <div className="flex justify-end gap-2 mt-6">
+              {/* Mode Selection */}
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-2">
+                  Tipo de Conteúdo Inicial
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCreationMode('placeholder')}
+                    className={`p-3 rounded-xl border text-left transition flex flex-col justify-between ${
+                      creationMode === 'placeholder'
+                        ? 'border-indigo-600 bg-indigo-50/70 ring-2 ring-indigo-500/20'
+                        : 'border-slate-200 hover:border-slate-300 bg-white'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 font-bold text-xs text-indigo-950">
+                      <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+                      Placeholder
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      10 matérias comuns, turmas e professores de exemplo.
+                    </p>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setCreationMode('empty')}
+                    className={`p-3 rounded-xl border text-left transition flex flex-col justify-between ${
+                      creationMode === 'empty'
+                        ? 'border-indigo-600 bg-indigo-50/70 ring-2 ring-indigo-500/20'
+                        : 'border-slate-200 hover:border-slate-300 bg-white'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 font-bold text-xs text-slate-900">
+                      <FileCode className="w-3.5 h-3.5 text-slate-600" />
+                      100% Vazia
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      Semana limpa do zero para você cadastrar tudo.
+                    </p>
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={() => setShowCreateModal(false)}
