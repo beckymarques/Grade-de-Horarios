@@ -2,6 +2,7 @@ import {
   DayOfWeek,
   GridCell,
   ScheduleConflict,
+  ConflictSeverity,
   ScheduleRule,
   Subject,
   Teacher,
@@ -178,9 +179,9 @@ export function validateSchedule(
         }
       });
 
-      // CHECK: Shared Rooms (Salas Compartilhadas)
+      // CHECK: Shared Rooms (Salas Compartilhadas) - only executed if the rule is enabled
       const sharedRoomRule = rules.find((r) => r.type === 'shared_room' && r.isEnabled);
-      if (sharedRoomRule || true) {
+      if (sharedRoomRule) {
         const roomTeachers = new Map<string, { cell: GridCell; teacher: Teacher }[]>();
         for (const cell of slotCells) {
           if (!cell.teacherId) continue;
@@ -658,11 +659,10 @@ export function validateSchedule(
         difference,
       });
 
-      // ALWAYS emit a validation notice if load is not fulfilled or exceeds target
+      // ALWAYS emit a validation notice if load is not fulfilled or exceeds target (Severity: ERROR)
       if (difference !== 0) {
         const isDeficit = difference < 0;
-        const isMandatory = exactRule?.isMandatory || false;
-        const severity = isMandatory ? 'error' : 'warning';
+        const severity: ConflictSeverity = 'error';
 
         // 1. If subject is allocated in some slots, attach workload status to EVERY slot where it appears
         if (allocatedSlots.length > 0) {

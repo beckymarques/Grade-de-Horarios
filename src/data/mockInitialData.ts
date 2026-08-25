@@ -1,6 +1,7 @@
 import {
   ClassGroup,
   DayTimeConfig,
+  DEFAULT_SHIFT_RANGES,
   GridCell,
   ScheduleRule,
   SharedRoom,
@@ -265,6 +266,8 @@ export function createInitialSampleWeek(): WeekSchedule {
     loads,
     rules: INITIAL_RULES,
     grid: {},
+    institutionName: 'Colégio & Curso Pré-Vestibular Alfa',
+    shiftRanges: { ...DEFAULT_SHIFT_RANGES },
   };
 
   return sampleWeek;
@@ -299,5 +302,7 @@ export function createEmptySampleWeek(title: string = 'Nova Grade em Branco', da
     loads: [],
     rules: INITIAL_RULES,
     grid: {},
+    institutionName: '',
+    shiftRanges: { ...DEFAULT_SHIFT_RANGES },
   };
 }

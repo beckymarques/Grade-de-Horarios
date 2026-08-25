@@ -649,8 +649,9 @@ export const ConfigRules: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => {
+                          const morningEnd = activeWeek.shiftRanges?.morningEnd || '12:30';
                           const morningSlots = lessonSlots
-                            .filter((s) => s.startTime < '12:30')
+                            .filter((s) => s.startTime < morningEnd)
                             .map((s) => s.id);
                           setParamSlotIds(morningSlots);
                         }}
@@ -661,14 +662,29 @@ export const ConfigRules: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => {
+                          const afternoonStart = activeWeek.shiftRanges?.afternoonStart || '12:30';
+                          const nightStart = activeWeek.shiftRanges?.nightStart || '18:30';
                           const afternoonSlots = lessonSlots
-                            .filter((s) => s.startTime >= '12:30')
+                            .filter((s) => s.startTime >= afternoonStart && s.startTime < nightStart)
                             .map((s) => s.id);
                           setParamSlotIds(afternoonSlots);
                         }}
-                        className="px-2 py-0.5 bg-indigo-100 text-indigo-900 hover:bg-indigo-200 border border-indigo-300 rounded-md font-semibold cursor-pointer"
+                        className="px-2 py-0.5 bg-orange-100 text-orange-900 hover:bg-orange-200 border border-orange-300 rounded-md font-semibold cursor-pointer"
                       >
                         🌤️ Toda a Tarde
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const nightStart = activeWeek.shiftRanges?.nightStart || '18:30';
+                          const nightSlots = lessonSlots
+                            .filter((s) => s.startTime >= nightStart)
+                            .map((s) => s.id);
+                          setParamSlotIds(nightSlots);
+                        }}
+                        className="px-2 py-0.5 bg-indigo-100 text-indigo-900 hover:bg-indigo-200 border border-indigo-300 rounded-md font-semibold cursor-pointer"
+                      >
+                        🌙 Toda a Noite
                       </button>
                       <button
                         type="button"

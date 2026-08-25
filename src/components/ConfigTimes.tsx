@@ -16,9 +16,21 @@ import {
   GripVertical,
   Lock,
   Utensils,
+  Building2,
+  Sun,
+  CloudSun,
+  Moon,
 } from 'lucide-react';
 import { useSchedule } from '../context/ScheduleContext';
-import { DayTimeConfig, IntervalConfig, EventConfig, DayOfWeek, DAYS_OF_WEEK } from '../types';
+import {
+  DayTimeConfig,
+  IntervalConfig,
+  EventConfig,
+  DayOfWeek,
+  DAYS_OF_WEEK,
+  ShiftRangeConfig,
+  DEFAULT_SHIFT_RANGES,
+} from '../types';
 import { calculateTimeSlots, formatMinutesToTime, parseTimeToMinutes } from '../utils/timeCalculator';
 
 export const ConfigTimes: React.FC = () => {
@@ -28,6 +40,20 @@ export const ConfigTimes: React.FC = () => {
 
   const [config, setConfig] = useState<DayTimeConfig>(activeWeek.timeConfig);
   const [activeDays, setActiveDays] = useState<DayOfWeek[]>(activeWeek.activeDays || ['SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SAB']);
+  const [institutionName, setInstitutionName] = useState<string>(activeWeek.institutionName || '');
+  const [shiftRanges, setShiftRanges] = useState<ShiftRangeConfig>(
+    activeWeek.shiftRanges || { ...DEFAULT_SHIFT_RANGES }
+  );
+
+  // Sync state if active week changes
+  useEffect(() => {
+    if (activeWeek) {
+      setConfig(activeWeek.timeConfig);
+      setActiveDays(activeWeek.activeDays || ['SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SAB']);
+      setInstitutionName(activeWeek.institutionName || '');
+      setShiftRanges(activeWeek.shiftRanges || { ...DEFAULT_SHIFT_RANGES });
+    }
+  }, [activeWeek?.id]);
 
   // Ensure mandatory Lunch is always present in events
   useEffect(() => {
@@ -52,7 +78,11 @@ export const ConfigTimes: React.FC = () => {
 
   const handleApply = () => {
     updateTimeConfig(config);
-    updateActiveWeek({ activeDays });
+    updateActiveWeek({
+      activeDays,
+      institutionName,
+      shiftRanges,
+    });
   };
 
   const handleToggleDay = (day: DayOfWeek) => {
@@ -205,6 +235,149 @@ export const ConfigTimes: React.FC = () => {
           <Sparkles className="w-4 h-4 text-amber-300" />
           Aplicar à Grade Semanal
         </button>
+      </div>
+
+      {/* INSTITUTION & SHIFT RANGES CARD */}
+      <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-5">
+        <div>
+          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-2">
+            <Building2 className="w-4 h-4 text-indigo-600" />
+            Identificação da Instituição & Faixas de Turnos
+          </h3>
+          <p className="text-[11px] text-slate-500 mt-0.5">
+            Configure o nome da sua escola, cursinho ou projeto (para sair nos relatórios e exportações em PDF/Excel) e os limites de horário de cada turno.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
+          {/* Institution Name Input */}
+          <div className="md:col-span-2">
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Nome da Escola / Curso / Projeto
+            </label>
+            <div className="relative">
+              <Building2 className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={institutionName}
+                onChange={(e) => setInstitutionName(e.target.value)}
+                placeholder="Ex: Escola Estadual Modelo / Curso Preparatório"
+                className="w-full pl-9 pr-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden bg-slate-50/50 hover:bg-white"
+              />
+            </div>
+          </div>
+
+          {/* Shift Ranges Configuration */}
+          <div className="md:col-span-2 bg-slate-50/80 p-4 rounded-xl border border-slate-200 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                <Sliders className="w-3.5 h-3.5 text-indigo-600" />
+                Faixas de Horários por Turno (Manhã, Tarde e Noite)
+              </span>
+              <span className="text-[10px] text-slate-500 font-medium">
+                Utilizado para categorizar aulas e restrições de professores
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {/* Morning Shift */}
+              <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-2xs space-y-2">
+                <div className="flex items-center gap-1.5 text-amber-800 text-xs font-bold">
+                  <Sun className="w-4 h-4 text-amber-500" />
+                  Turno Manhã
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-[11px]">
+                  <div>
+                    <label className="block text-slate-500 text-[10px] font-medium">Início</label>
+                    <input
+                      type="time"
+                      value={shiftRanges.morningStart}
+                      onChange={(e) =>
+                        setShiftRanges((prev) => ({ ...prev, morningStart: e.target.value }))
+                      }
+                      className="w-full px-2 py-1 border border-slate-300 rounded font-mono text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-500 text-[10px] font-medium">Fim</label>
+                    <input
+                      type="time"
+                      value={shiftRanges.morningEnd}
+                      onChange={(e) =>
+                        setShiftRanges((prev) => ({ ...prev, morningEnd: e.target.value }))
+                      }
+                      className="w-full px-2 py-1 border border-slate-300 rounded font-mono text-xs"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Afternoon Shift */}
+              <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-2xs space-y-2">
+                <div className="flex items-center gap-1.5 text-orange-800 text-xs font-bold">
+                  <CloudSun className="w-4 h-4 text-orange-500" />
+                  Turno Tarde
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-[11px]">
+                  <div>
+                    <label className="block text-slate-500 text-[10px] font-medium">Início</label>
+                    <input
+                      type="time"
+                      value={shiftRanges.afternoonStart}
+                      onChange={(e) =>
+                        setShiftRanges((prev) => ({ ...prev, afternoonStart: e.target.value }))
+                      }
+                      className="w-full px-2 py-1 border border-slate-300 rounded font-mono text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-500 text-[10px] font-medium">Fim</label>
+                    <input
+                      type="time"
+                      value={shiftRanges.afternoonEnd}
+                      onChange={(e) =>
+                        setShiftRanges((prev) => ({ ...prev, afternoonEnd: e.target.value }))
+                      }
+                      className="w-full px-2 py-1 border border-slate-300 rounded font-mono text-xs"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Night Shift */}
+              <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-2xs space-y-2">
+                <div className="flex items-center gap-1.5 text-indigo-900 text-xs font-bold">
+                  <Moon className="w-4 h-4 text-indigo-600" />
+                  Turno Noite
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-[11px]">
+                  <div>
+                    <label className="block text-slate-500 text-[10px] font-medium">Início</label>
+                    <input
+                      type="time"
+                      value={shiftRanges.nightStart}
+                      onChange={(e) =>
+                        setShiftRanges((prev) => ({ ...prev, nightStart: e.target.value }))
+                      }
+                      className="w-full px-2 py-1 border border-slate-300 rounded font-mono text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-500 text-[10px] font-medium">Fim</label>
+                    <input
+                      type="time"
+                      value={shiftRanges.nightEnd}
+                      onChange={(e) =>
+                        setShiftRanges((prev) => ({ ...prev, nightEnd: e.target.value }))
+                      }
+                      className="w-full px-2 py-1 border border-slate-300 rounded font-mono text-xs"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* FREQUENCY / DAYS SELECTOR CARD */}

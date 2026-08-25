@@ -134,6 +134,40 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
         {/* Form Body */}
         <div className="space-y-4 my-4">
           
+          {/* Lock / Pin Status Banner */}
+          <div className={`p-3 rounded-xl border flex items-center justify-between transition ${
+            isLocked
+              ? 'bg-amber-50/80 border-amber-300 text-amber-900'
+              : 'bg-slate-50 border-slate-200 text-slate-700'
+          }`}>
+            <div className="flex items-center gap-2.5">
+              <div className={`p-2 rounded-lg ${isLocked ? 'bg-amber-500 text-white shadow-xs' : 'bg-slate-200 text-slate-600'}`}>
+                {isLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
+              </div>
+              <div>
+                <div className="text-xs font-bold">
+                  {isLocked ? 'Célula Fixada / Travada' : 'Célula Livre'}
+                </div>
+                <div className="text-[11px] text-slate-500">
+                  {isLocked
+                    ? 'Esta célula está protegida contra alterações automáticas e manuais. Destrave para modificar.'
+                    : 'O gerador automático e o usuário podem alterar e otimizar esta aula.'}
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsLocked(!isLocked)}
+              className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition shadow-2xs ${
+                isLocked
+                  ? 'bg-amber-500 text-white border-amber-600 hover:bg-amber-600'
+                  : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+              }`}
+            >
+              {isLocked ? '🔓 Destravar' : '🔒 Travar'}
+            </button>
+          </div>
+
           {/* Subject selector */}
           <div>
             <label className="block text-xs font-medium text-slate-700 mb-1 flex items-center gap-1.5">
@@ -143,7 +177,8 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
             <select
               value={selectedSubjectId || ''}
               onChange={(e) => handleSubjectChange(e.target.value)}
-              className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-hidden bg-white"
+              disabled={isLocked}
+              className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-hidden bg-white disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
             >
               <option value="">-- Célula Vazia / Sem Aula --</option>
               {activeWeek.subjects.map((sub) => (
@@ -163,8 +198,8 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
             <select
               value={selectedTeacherId || ''}
               onChange={(e) => setSelectedTeacherId(e.target.value || null)}
-              disabled={!selectedSubjectId}
-              className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-hidden bg-white disabled:bg-slate-100 disabled:text-slate-400"
+              disabled={!selectedSubjectId || isLocked}
+              className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-hidden bg-white disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
             >
               <option value="">-- Selecione o Professor --</option>
               {capableTeachers.map((t) => {
@@ -186,34 +221,6 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
                 ))}
             </select>
           </div>
-
-          {/* Lock / Pin Checkbox */}
-          <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
-              <div className={`p-2 rounded-lg ${isLocked ? 'bg-amber-100 text-amber-800' : 'bg-slate-200 text-slate-600'}`}>
-                {isLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
-              </div>
-              <div>
-                <div className="text-xs font-semibold text-slate-800">
-                  {isLocked ? 'Célula Fixada / Travada' : 'Célula Livre'}
-                </div>
-                <div className="text-[11px] text-slate-500">
-                  O gerador automático nunca alterará ou moverá células travadas.
-                </div>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => setIsLocked(!isLocked)}
-              className={`px-3 py-1 text-xs font-semibold rounded-lg border transition ${
-                isLocked
-                  ? 'bg-amber-500 text-white border-amber-600 hover:bg-amber-600'
-                  : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
-              }`}
-            >
-              {isLocked ? 'Destravar' : 'Travar'}
-            </button>
-          </div>
         </div>
 
         {/* Action Buttons */}
@@ -221,7 +228,8 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
           <button
             type="button"
             onClick={handleClear}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50 rounded-lg transition"
+            disabled={isLocked}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50 rounded-lg transition disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <Trash2 className="w-3.5 h-3.5" />
             Limpar Horário

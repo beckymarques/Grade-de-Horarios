@@ -22,6 +22,7 @@ import {
 import { useSchedule, ActiveTab } from '../context/ScheduleContext';
 import { SolverModal } from './SolverModal';
 import { ExportModal } from './ExportModal';
+import { DuplicateWeekModal } from './DuplicateWeekModal';
 import { exportBackupJSON } from '../utils/exportEngine';
 
 interface HeaderProps {
@@ -29,6 +30,7 @@ interface HeaderProps {
   onOpenSolver?: () => void;
   onOpenExport?: () => void;
   onOpenLayoutModal: () => void;
+  onOpenOnboarding?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -36,6 +38,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenSolver,
   onOpenExport,
   onOpenLayoutModal,
+  onOpenOnboarding,
 }) => {
   const {
     weeks,
@@ -46,7 +49,6 @@ export const Header: React.FC<HeaderProps> = ({
     setActiveTab,
     layoutTheme,
     validation,
-    duplicateWeek,
     createNewWeek,
     importData,
   } = useSchedule();
@@ -75,16 +77,6 @@ export const Header: React.FC<HeaderProps> = ({
     { id: 'regras', label: 'Regras da Semana', icon: Scale },
     { id: 'semanas', label: 'Gerenciar Semanas', icon: FolderOpen },
   ];
-
-  const handleDuplicate = () => {
-    if (!activeWeek) return;
-    const duplicated = duplicateWeek(
-      activeWeek.id,
-      `Grade Cópia de ${activeWeek.title}`,
-      activeWeek.dateRange
-    );
-    setShowDuplicateModal(false);
-  };
 
   const handleCreateNew = (e: React.FormEvent) => {
     e.preventDefault();
@@ -127,8 +119,17 @@ export const Header: React.FC<HeaderProps> = ({
           {/* Logo & App Name */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-600 to-blue-700 flex items-center justify-center text-white shadow-sm font-bold text-base">
-                GV
+              <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center text-white shadow-xs">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  height="22px"
+                  viewBox="0 -960 960 960"
+                  width="22px"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <path d="M130-189 81-546q-5-32 15.5-58t52.5-31l61 435 283-40h267q-8 21-24.5 35.5T695-187l-477 66q-33 5-58-15t-30-53Zm190-127q-33 0-56.5-23.5T240-396v-364q0-33 23.5-56.5T320-840h480q33 0 56.5 23.5T880-760v364q0 33-23.5 56.5T800-316H320Zm0-80h480v-364H320v364Zm0 0v-364 364ZM210-200Zm190-400h320v-80H400v80Zm0 120h200v-80H400v80Z" />
+                </svg>
               </div>
               <div>
                 <div className="flex items-center gap-1.5">
@@ -314,63 +315,12 @@ export const Header: React.FC<HeaderProps> = ({
         <ExportModal onClose={() => setShowExportModal(false)} />
       )}
 
-      {/* Duplicate Week Modal */}
-      {showDuplicateModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95">
-            <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-              <Copy className="w-5 h-5 text-indigo-600" />
-              Duplicar Semana Atual
-            </h3>
-            <p className="text-xs text-slate-600">
-              Cria uma nova semana idêntica a esta, preservando todas as configurações de tempos, turmas, professores, cargas e regras. Ideal para o fluxo semanal.
-            </p>
-
-            <div className="space-y-3">
-              <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">
-                  Título da Nova Semana
-                </label>
-                <input
-                  type="text"
-                  value={newTitle}
-                  onChange={(e) => setNewTitle(e.target.value)}
-                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">
-                  Período / Datas
-                </label>
-                <input
-                  type="text"
-                  value={newDateRange}
-                  onChange={(e) => setNewDateRange(e.target.value)}
-                  placeholder="Ex: 15/08/2026 - 20/08/2026"
-                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
-                />
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setShowDuplicateModal(false)}
-                className="px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-lg"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={handleDuplicate}
-                className="px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm"
-              >
-                Criar Cópia & Abrir
-              </button>
-            </div>
-          </div>
-        </div>
+      {/* Duplicate Week Granular Modal */}
+      {showDuplicateModal && activeWeek && (
+        <DuplicateWeekModal
+          sourceWeek={activeWeek}
+          onClose={() => setShowDuplicateModal(false)}
+        />
       )}
     </header>
   );

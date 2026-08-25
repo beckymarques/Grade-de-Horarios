@@ -1,3 +1,39 @@
+export interface ShiftRangeConfig {
+  morningStart: string; // "06:00"
+  morningEnd: string; // "12:30"
+  afternoonStart: string; // "12:30"
+  afternoonEnd: string; // "18:30"
+  nightStart: string; // "18:30"
+  nightEnd: string; // "23:00"
+}
+
+export const DEFAULT_SHIFT_RANGES: ShiftRangeConfig = {
+  morningStart: '06:00',
+  morningEnd: '12:30',
+  afternoonStart: '12:30',
+  afternoonEnd: '18:30',
+  nightStart: '18:30',
+  nightEnd: '23:00',
+};
+
+export interface DuplicateWeekOptions {
+  copyGrid: boolean;
+  copyLocks: boolean;
+  copyClasses: boolean;
+  copyTeachers: boolean;
+  copySubjects: boolean;
+  copyLoads: boolean;
+  copyTimeSlots: boolean;
+  copyRules: boolean;
+  copySharedRooms: boolean;
+}
+
+export interface DayOfWeekItem {
+  key: DayOfWeek;
+  label: string;
+  short: string;
+}
+
 export type DayOfWeek = 'SEG' | 'TER' | 'QUA' | 'QUI' | 'SEX' | 'SAB' | 'DOM';
 
 export const DAYS_OF_WEEK: { key: DayOfWeek; label: string; short: string }[] = [
@@ -218,6 +254,8 @@ export interface WeekSchedule {
   loads: SubjectLoad[];
   rules: ScheduleRule[];
   grid: Record<string, GridCell>; // key = `${day}_${slotId}_${classId}`
+  institutionName?: string; // Nome da Escola / Cursinho / Projeto
+  shiftRanges?: ShiftRangeConfig; // Faixas de turnos (manhã, tarde, noite)
   notes?: string;
 }
 

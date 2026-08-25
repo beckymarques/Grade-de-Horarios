@@ -50,6 +50,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   const [selectedDays, setSelectedDays] = useState<DayOfWeek[]>(() => {
     return currentActiveWeek?.activeDays || ['SEG', 'TER', 'QUA', 'QUI', 'SEX'];
   });
+  const [includeTimestamp, setIncludeTimestamp] = useState<boolean>(true);
 
   // Sync days when active week changes
   useEffect(() => {
@@ -81,18 +82,18 @@ export const ExportModal: React.FC<ExportModalProps> = ({
 
   const getEffectiveOptions = (): ExportFilterOptions => {
     if (exportScope === 'all_together') {
-      return { selectedDays: availableDays, separateZip: false };
+      return { selectedDays: availableDays, separateZip: false, includeTimestamp };
     }
     if (exportScope === 'single_day') {
-      return { selectedDays: [singleDay], separateZip: false };
+      return { selectedDays: [singleDay], separateZip: false, includeTimestamp };
     }
     if (exportScope === 'custom_days') {
-      return { selectedDays, separateZip: false };
+      return { selectedDays, separateZip: false, includeTimestamp };
     }
     if (exportScope === 'separate_zip') {
-      return { selectedDays, separateZip: true };
+      return { selectedDays, separateZip: true, includeTimestamp };
     }
-    return { selectedDays: availableDays, separateZip: false };
+    return { selectedDays: availableDays, separateZip: false, includeTimestamp };
   };
 
   const handleExportExcel = async () => {
@@ -308,6 +309,23 @@ export const ExportModal: React.FC<ExportModalProps> = ({
               </div>
             </div>
           )}
+        </div>
+
+        {/* Timestamp Toggle Option */}
+        <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex items-center justify-between">
+          <div>
+            <div className="text-xs font-bold text-slate-800">Data e Hora de Emissão</div>
+            <div className="text-[11px] text-slate-500">Exibir o carimbo "Emissão: DD/MM/AAAA às HH:mm" no topo da exportação</div>
+          </div>
+          <label className="relative inline-flex items-center cursor-pointer">
+            <input
+              type="checkbox"
+              checked={includeTimestamp}
+              onChange={(e) => setIncludeTimestamp(e.target.checked)}
+              className="sr-only peer"
+            />
+            <div className="w-9 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
+          </label>
         </div>
 
         {/* Options Grid */}

@@ -5,6 +5,7 @@ import {
   Plus,
   Trash2,
   Edit2,
+  Pencil,
   FolderOpen,
   Download,
   Upload,
@@ -14,10 +15,15 @@ import {
   ArrowRight,
   Sparkles,
   FileCode,
+  Compass,
+  Building2,
+  X,
 } from 'lucide-react';
 import { useSchedule } from '../context/ScheduleContext';
-import { GridCell } from '../types';
+import { GridCell, WeekSchedule } from '../types';
 import { exportBackupJSON } from '../utils/exportEngine';
+import { DuplicateWeekModal } from './DuplicateWeekModal';
+import { WelcomeOnboardingModal } from './WelcomeOnboardingModal';
 
 export const WeeksList: React.FC = () => {
   const {
@@ -25,26 +31,50 @@ export const WeeksList: React.FC = () => {
     activeWeekId,
     setActiveWeekId,
     setActiveTab,
-    duplicateWeek,
     createNewWeek,
+    updateWeek,
     deleteWeek,
     importData,
-    resetAllToDefaults,
   } = useSchedule();
 
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showWelcomeModal, setShowWelcomeModal] = useState(false);
+  const [weekToDuplicate, setWeekToDuplicate] = useState<WeekSchedule | null>(null);
+
+  // Edit Week State
+  const [weekToEdit, setWeekToEdit] = useState<WeekSchedule | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editDateRange, setEditDateRange] = useState('');
+  const [editInstitutionName, setEditInstitutionName] = useState('');
+
   const [newTitle, setNewTitle] = useState('');
   const [newDateRange, setNewDateRange] = useState('');
   const [creationMode, setCreationMode] = useState<'placeholder' | 'empty'>('placeholder');
 
-  const handleDuplicate = (weekId: string) => {
+  const handleOpenDuplicateModal = (weekId: string) => {
     const source = weeks.find((w) => w.id === weekId);
     if (!source) return;
-    duplicateWeek(
-      source.id,
-      `Grade Cópia de ${source.title}`,
-      source.dateRange
-    );
+    setWeekToDuplicate(source);
+  };
+
+  const handleStartEdit = (week: WeekSchedule) => {
+    setWeekToEdit(week);
+    setEditTitle(week.title);
+    setEditDateRange(week.dateRange);
+    setEditInstitutionName(week.institutionName || '');
+  };
+
+  const handleSaveEdit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!weekToEdit || !editTitle.trim()) return;
+
+    updateWeek(weekToEdit.id, {
+      title: editTitle.trim(),
+      dateRange: editDateRange.trim() || 'Semana Regular',
+      institutionName: editInstitutionName.trim() || undefined,
+    });
+
+    setWeekToEdit(null);
   };
 
   const handleCreate = (e: React.FormEvent) => {
@@ -105,8 +135,17 @@ export const WeeksList: React.FC = () => {
         {/* Global actions */}
         <div className="flex items-center flex-wrap gap-2">
           <button
+            onClick={() => setShowWelcomeModal(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-xl hover:bg-indigo-100 transition shadow-2xs cursor-pointer"
+            title="Escolha entre começar com exemplo, grade vazia ou importar backup"
+          >
+            <Compass className="w-3.5 h-3.5 text-indigo-600" />
+            Como Começar / Modelos
+          </button>
+
+          <button
             onClick={() => exportBackupJSON(weeks)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-xl hover:bg-slate-50 transition shadow-xs"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-xl hover:bg-slate-50 transition shadow-xs cursor-pointer"
           >
             <Download className="w-3.5 h-3.5 text-slate-600" />
             Exportar Backup JSON
@@ -126,7 +165,7 @@ export const WeeksList: React.FC = () => {
           <button
             id="btn_create_new_week"
             onClick={() => setShowCreateModal(true)}
-            className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-xs transition"
+            className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-xs transition cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             Nova Semana
@@ -153,7 +192,7 @@ export const WeeksList: React.FC = () => {
             >
               <div>
                 <div className="flex items-start justify-between gap-2">
-                  <div>
+                  <div className="space-y-0.5">
                     <div className="flex items-center gap-2">
                       <span className="font-bold text-sm text-slate-900">{week.title}</span>
                       {isActive && (
@@ -162,14 +201,33 @@ export const WeeksList: React.FC = () => {
                         </span>
                       )}
                     </div>
-                    <div className="text-xs text-slate-500 font-medium mt-0.5">
-                      Período: {week.dateRange}
+                    <div className="flex items-center gap-2 text-xs text-slate-500 font-medium">
+                      <span>Período: {week.dateRange}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleStartEdit(week)}
+                        className="inline-flex items-center gap-0.5 text-indigo-600 hover:text-indigo-800 hover:underline text-[11px] font-semibold ml-1 cursor-pointer"
+                        title="Editar título e período desta semana"
+                      >
+                        <Pencil className="w-3 h-3" />
+                        Editar
+                      </button>
                     </div>
+                    {week.institutionName && (
+                      <div className="text-[11px] text-slate-400">
+                        {week.institutionName}
+                      </div>
+                    )}
                   </div>
 
-                  <div className="p-2 bg-white rounded-xl border border-slate-200 text-indigo-600">
-                    <Calendar className="w-5 h-5" />
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleStartEdit(week)}
+                    className="p-2 bg-white hover:bg-slate-50 rounded-xl border border-slate-200 text-slate-600 hover:text-indigo-600 shadow-2xs transition cursor-pointer"
+                    title="Editar informações da semana"
+                  >
+                    <Edit2 className="w-4 h-4" />
+                  </button>
                 </div>
 
                 <div className="grid grid-cols-3 gap-2 mt-4 pt-3 border-t border-slate-200/60 text-xs">
@@ -190,20 +248,29 @@ export const WeeksList: React.FC = () => {
 
               {/* Action Buttons */}
               <div className="flex items-center justify-between pt-2 border-t border-slate-200/60">
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1.5">
                   <button
-                    onClick={() => handleDuplicate(week.id)}
-                    className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg shadow-2xs transition"
-                    title="Duplicar esta semana para criar a próxima"
+                    onClick={() => handleStartEdit(week)}
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg shadow-2xs transition cursor-pointer"
+                    title="Editar título e período"
+                  >
+                    <Pencil className="w-3.5 h-3.5 text-slate-500" />
+                    <span>Editar</span>
+                  </button>
+
+                  <button
+                    onClick={() => handleOpenDuplicateModal(week.id)}
+                    className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg shadow-2xs transition cursor-pointer"
+                    title="Duplicar esta semana escolhendo o que copiar"
                   >
                     <Copy className="w-3.5 h-3.5 text-slate-500" />
-                    <span>Duplicar</span>
+                    <span>Duplicar...</span>
                   </button>
 
                   {weeks.length > 1 && (
                     <button
                       onClick={() => deleteWeek(week.id)}
-                      className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
+                      className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
                       title="Excluir semana"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -213,7 +280,7 @@ export const WeeksList: React.FC = () => {
 
                 <button
                   onClick={() => handleOpenWeek(week.id)}
-                  className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-xs transition"
+                  className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-xs transition cursor-pointer"
                 >
                   <span>Abrir Grade</span>
                   <ArrowRight className="w-3.5 h-3.5" />
@@ -223,6 +290,21 @@ export const WeeksList: React.FC = () => {
           );
         })}
       </div>
+
+      {/* Duplicate Granular Modal */}
+      {weekToDuplicate && (
+        <DuplicateWeekModal
+          sourceWeek={weekToDuplicate}
+          onClose={() => setWeekToDuplicate(null)}
+        />
+      )}
+
+      {/* Welcome / Onboarding Modal */}
+      {showWelcomeModal && (
+        <WelcomeOnboardingModal
+          onClose={() => setShowWelcomeModal(false)}
+        />
+      )}
 
       {/* Create Week Modal */}
       {showCreateModal && (
@@ -320,6 +402,88 @@ export const WeeksList: React.FC = () => {
                   className="px-4 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-xs"
                 >
                   Criar & Abrir
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Week Modal */}
+      {weekToEdit && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between mb-1">
+              <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                <Pencil className="w-4 h-4 text-indigo-600" />
+                Editar Informações da Semana
+              </h3>
+              <button
+                type="button"
+                onClick={() => setWeekToEdit(null)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <p className="text-xs text-slate-500 mb-4">
+              Atualize o título e o período/datas desta semana para manter o histórico e relatórios organizados.
+            </p>
+
+            <form onSubmit={handleSaveEdit} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Título da Grade / Semana *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                  placeholder="Ex: Semana 35 — Intensivo Reta Final"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Período / Datas
+                </label>
+                <input
+                  type="text"
+                  value={editDateRange}
+                  onChange={(e) => setEditDateRange(e.target.value)}
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                  placeholder="Ex: 29/08/2026 a 04/09/2026"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Nome da Escola / Curso / Projeto (Opcional)
+                </label>
+                <input
+                  type="text"
+                  value={editInstitutionName}
+                  onChange={(e) => setEditInstitutionName(e.target.value)}
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                  placeholder="Ex: Escola Estadual Modelo / Curso Preparatório"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setWeekToEdit(null)}
+                  className="px-3.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-xs cursor-pointer"
+                >
+                  Salvar Alterações
                 </button>
               </div>
             </form>

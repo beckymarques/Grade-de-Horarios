@@ -137,6 +137,13 @@ export const TimetableGrid: React.FC<TimetableGridProps> = ({
     }
 
     // If target has a subject, swap; otherwise move
+    const sourceCell = resolveCellForClass(
+      activeWeek.grid,
+      source.day,
+      source.slotId,
+      source.classId,
+      activeWeek.classes
+    );
     const targetCell = resolveCellForClass(
       activeWeek.grid,
       targetDay,
@@ -144,6 +151,12 @@ export const TimetableGrid: React.FC<TimetableGridProps> = ({
       targetClassId,
       activeWeek.classes
     );
+
+    // Prevent moving or swapping locked cells
+    if (sourceCell?.isLocked || targetCell?.isLocked) {
+      setDraggingCell(null);
+      return;
+    }
 
     if (targetCell && targetCell.subjectId) {
       swapCells(source, target);
@@ -355,7 +368,7 @@ export const TimetableGrid: React.FC<TimetableGridProps> = ({
                 <div className="text-xs text-slate-300 flex items-center gap-3">
                   <span>{displayClasses.length} Turmas</span>
                   <span>•</span>
-                  <span>{activeWeek.generatedSlots.length} Tempos</span>
+                  <span>{activeWeek.generatedSlots.filter((s) => s.type === 'lesson').length} Tempos de Aula</span>
                 </div>
               </div>
 
@@ -693,10 +706,14 @@ export const TimetableGrid: React.FC<TimetableGridProps> = ({
                                   {cell && cell.subjectId ? (
                                     /* FILLED CELL CONTENT */
                                     <div
-                                      draggable
-                                      onDragStart={(e) =>
-                                        handleDragStart(e, dayKey, slot.id, cls.id, cell)
-                                      }
+                                      draggable={!cell.isLocked}
+                                      onDragStart={(e) => {
+                                        if (cell.isLocked) {
+                                          e.preventDefault();
+                                          return;
+                                        }
+                                        handleDragStart(e, dayKey, slot.id, cls.id, cell);
+                                      }}
                                       onClick={() =>
                                         setSelectedCellToEdit({
                                           day: dayKey,
@@ -710,7 +727,11 @@ export const TimetableGrid: React.FC<TimetableGridProps> = ({
                                             ? subject?.color || '#3e70d6'
                                             : undefined,
                                       }}
-                                      className={`transition select-none flex-1 flex flex-col justify-between cursor-grab active:cursor-grabbing ${
+                                      className={`transition select-none flex-1 flex flex-col justify-between ${
+                                        cell.isLocked
+                                          ? 'cursor-pointer ring-1 ring-amber-400/70'
+                                          : 'cursor-grab active:cursor-grabbing'
+                                      } ${
                                         // 1. MODERN CARDS THEME
                                         layoutTheme === 'modern_cards'
                                           ? `p-3 rounded-2xl border shadow-xs hover:shadow-md hover:-translate-y-0.5 min-h-[5.5rem] bg-white ${

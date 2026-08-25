@@ -12,14 +12,19 @@ import { SolverModal } from './components/SolverModal';
 import { ExportModal } from './components/ExportModal';
 import { ConflictDrawer } from './components/ConflictDrawer';
 import { LayoutSelectorModal } from './components/LayoutSelectorModal';
+import { WelcomeOnboardingModal } from './components/WelcomeOnboardingModal';
 
 const MainAppContent: React.FC = () => {
   const { activeTab, layoutTheme, setLayoutTheme } = useSchedule();
   const [showSolverModal, setShowSolverModal] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
   const [showConflictsDrawer, setShowConflictsDrawer] = useState(false);
+  const [showWelcomeModal, setShowWelcomeModal] = useState<boolean>(() => {
+    return !localStorage.getItem('prevest_has_onboarded_v1');
+  });
   const [showLayoutModal, setShowLayoutModal] = useState<boolean>(() => {
-    return !localStorage.getItem('prevest_has_chosen_layout_v1');
+    // If onboarding hasn't happened, let onboarding happen first
+    return !!localStorage.getItem('prevest_has_onboarded_v1') && !localStorage.getItem('prevest_has_chosen_layout_v1');
   });
 
   return (
@@ -30,6 +35,7 @@ const MainAppContent: React.FC = () => {
         onOpenExport={() => setShowExportModal(true)}
         onOpenConflicts={() => setShowConflictsDrawer(true)}
         onOpenLayoutModal={() => setShowLayoutModal(true)}
+        onOpenOnboarding={() => setShowWelcomeModal(true)}
       />
 
       {/* Main Tab Content */}
@@ -50,8 +56,21 @@ const MainAppContent: React.FC = () => {
         {activeTab === 'semanas' && <WeeksList />}
       </main>
 
+      {/* Welcome / Onboarding Modal */}
+      {showWelcomeModal && (
+        <WelcomeOnboardingModal
+          onClose={() => {
+            setShowWelcomeModal(false);
+            if (!localStorage.getItem('prevest_has_chosen_layout_v1')) {
+              setShowLayoutModal(true);
+            }
+          }}
+          isFirstTime={!localStorage.getItem('prevest_has_onboarded_v1')}
+        />
+      )}
+
       {/* Layout Selection Modal */}
-      {showLayoutModal && (
+      {showLayoutModal && !showWelcomeModal && (
         <LayoutSelectorModal
           currentTheme={layoutTheme}
           onSelectTheme={(theme) => setLayoutTheme(theme)}

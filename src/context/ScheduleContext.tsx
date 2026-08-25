@@ -11,6 +11,7 @@ import {
   UserSession,
   WeekSchedule,
   TimetableLayoutTheme,
+  DuplicateWeekOptions,
 } from '../types';
 import {
   createInitialSampleWeek,
@@ -84,8 +85,17 @@ interface ScheduleContextType {
   // Week CRUD
   createNewWeek: (title: string, dateRange: string, mode?: 'placeholder' | 'empty') => WeekSchedule;
   duplicateWeek: (sourceWeekId: string, newTitle: string, newDateRange: string) => WeekSchedule;
+  duplicateWeekWithOptions: (
+    sourceWeekId: string,
+    newTitle: string,
+    newDateRange: string,
+    options: DuplicateWeekOptions
+  ) => WeekSchedule;
   updateActiveWeek: (updated: Partial<WeekSchedule>) => void;
+  updateWeek: (weekId: string, updated: Partial<WeekSchedule>) => void;
   deleteWeek: (weekId: string) => void;
+  resetToSampleSchool: () => void;
+  resetToEmptySchool: () => void;
 
   // Config helpers
   updateTimeConfig: (config: DayTimeConfig) => void;
@@ -341,6 +351,24 @@ export const ScheduleProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     [activeWeekId]
   );
 
+  const updateWeek = useCallback(
+    (weekId: string, updated: Partial<WeekSchedule>) => {
+      setWeeks((prev) =>
+        prev.map((w) => {
+          if (w.id === weekId) {
+            return {
+              ...w,
+              ...updated,
+              updatedAt: new Date().toISOString(),
+            };
+          }
+          return w;
+        })
+      );
+    },
+    []
+  );
+
   const createNewWeek = (
     title: string,
     dateRange: string,
@@ -366,15 +394,71 @@ export const ScheduleProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   const duplicateWeek = (sourceWeekId: string, newTitle: string, newDateRange: string): WeekSchedule => {
+    return duplicateWeekWithOptions(sourceWeekId, newTitle, newDateRange, {
+      copyGrid: true,
+      copyLocks: true,
+      copyClasses: true,
+      copyTeachers: true,
+      copySubjects: true,
+      copyLoads: true,
+      copyTimeSlots: true,
+      copyRules: true,
+      copySharedRooms: true,
+    });
+  };
+
+  const duplicateWeekWithOptions = (
+    sourceWeekId: string,
+    newTitle: string,
+    newDateRange: string,
+    options: DuplicateWeekOptions
+  ): WeekSchedule => {
     const source = weeks.find((w) => w.id === sourceWeekId) || activeWeek || createInitialSampleWeek();
     const newId = `week_${Date.now()}`;
+
+    // Construct grid based on options
+    let newGrid: Record<string, GridCell> = {};
+    if (options.copyGrid) {
+      newGrid = JSON.parse(JSON.stringify(source.grid || {}));
+      if (!options.copyLocks) {
+        Object.keys(newGrid).forEach((k) => {
+          if (newGrid[k]) newGrid[k].isLocked = false;
+        });
+      }
+    } else if (options.copyLocks) {
+      // Only keep cells that are locked
+      Object.entries(source.grid || {}).forEach(([k, cell]) => {
+        const gridCell = cell as GridCell | undefined;
+        if (gridCell && gridCell.isLocked) {
+          newGrid[k] = JSON.parse(JSON.stringify(gridCell));
+        }
+      });
+    }
+
+    const defaultEmpty = createEmptySampleWeek(newTitle, newDateRange);
+
     const duplicated: WeekSchedule = {
-      ...JSON.parse(JSON.stringify(source)),
       id: newId,
       title: newTitle,
       dateRange: newDateRange,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+      institutionName: source.institutionName,
+      shiftRanges: source.shiftRanges ? { ...source.shiftRanges } : undefined,
+      activeDays: options.copyTimeSlots ? [...source.activeDays] : ['SEG', 'TER', 'QUA', 'QUI', 'SEX'],
+      timeConfig: options.copyTimeSlots
+        ? JSON.parse(JSON.stringify(source.timeConfig))
+        : JSON.parse(JSON.stringify(defaultEmpty.timeConfig)),
+      generatedSlots: options.copyTimeSlots
+        ? JSON.parse(JSON.stringify(source.generatedSlots))
+        : JSON.parse(JSON.stringify(defaultEmpty.generatedSlots)),
+      classes: options.copyClasses ? JSON.parse(JSON.stringify(source.classes)) : [],
+      teachers: options.copyTeachers ? JSON.parse(JSON.stringify(source.teachers)) : [],
+      subjects: options.copySubjects ? JSON.parse(JSON.stringify(source.subjects)) : [],
+      sharedRooms: options.copySharedRooms ? JSON.parse(JSON.stringify(source.sharedRooms)) : [],
+      loads: options.copyLoads ? JSON.parse(JSON.stringify(source.loads)) : [],
+      rules: options.copyRules ? JSON.parse(JSON.stringify(source.rules)) : [...INITIAL_RULES],
+      grid: newGrid,
     };
 
     setWeeks((prev) => [duplicated, ...prev]);
@@ -421,13 +505,23 @@ export const ScheduleProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     classId: string,
     subjectId: string | null,
     teacherId: string | null,
-    isLocked: boolean = false
+    isLocked?: boolean
   ) => {
     if (!activeWeek) return;
     const key = `${day}_${slotId}_${classId}`;
     const currentCell = activeWeek.grid[key];
-    const newLocked = isLocked !== undefined ? isLocked : currentCell?.isLocked || false;
 
+    // Strict Lock Enforcement: A locked cell cannot have its content modified unless unlocked first
+    if (
+      currentCell?.isLocked &&
+      isLocked === undefined &&
+      (currentCell.subjectId !== subjectId || currentCell.teacherId !== teacherId)
+    ) {
+      console.warn('Operação bloqueada: Célula travada não pode ser modificada.');
+      return;
+    }
+
+    const newLocked = isLocked !== undefined ? isLocked : currentCell?.isLocked || false;
     const relatedIds = getAllRelatedClassIds(classId, activeWeek.classes);
     const newGrid = { ...activeWeek.grid };
 
@@ -449,10 +543,22 @@ export const ScheduleProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const clearCell = (day: DayOfWeek, slotId: string, classId: string) => {
     if (!activeWeek) return;
+    const key = `${day}_${slotId}_${classId}`;
+    const currentCell = activeWeek.grid[key];
+
+    // Strict Lock Enforcement: A locked cell cannot be cleared
+    if (currentCell?.isLocked) {
+      console.warn('Operação bloqueada: Célula travada não pode ser limpa.');
+      return;
+    }
+
     const relatedIds = getAllRelatedClassIds(classId, activeWeek.classes);
     const newGrid = { ...activeWeek.grid };
 
     for (const cId of relatedIds) {
+      const relCell = newGrid[`${day}_${slotId}_${cId}`];
+      if (relCell?.isLocked) continue;
+
       newGrid[`${day}_${slotId}_${cId}`] = {
         id: `cell_${day}_${slotId}_${cId}`,
         day,
@@ -499,6 +605,12 @@ export const ScheduleProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const sourceCell = activeWeek.grid[sourceKey];
     const targetCell = activeWeek.grid[targetKey];
 
+    // Strict Lock Enforcement: Locked cells cannot be moved or swapped
+    if (sourceCell?.isLocked || targetCell?.isLocked) {
+      console.warn('Operação bloqueada: Células travadas não podem ser trocadas.');
+      return;
+    }
+
     const sourceRelated = getAllRelatedClassIds(source.classId, activeWeek.classes);
     const targetRelated = getAllRelatedClassIds(target.classId, activeWeek.classes);
     const newGrid = { ...activeWeek.grid };
@@ -537,7 +649,17 @@ export const ScheduleProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   ) => {
     if (!activeWeek) return;
     const sourceKey = `${source.day}_${source.slotId}_${source.classId}`;
+    const targetKey = `${target.day}_${target.slotId}_${target.classId}`;
+
     const sourceCell = activeWeek.grid[sourceKey];
+    const targetCell = activeWeek.grid[targetKey];
+
+    // Strict Lock Enforcement: Locked cells cannot be moved or overwritten
+    if (sourceCell?.isLocked || targetCell?.isLocked) {
+      console.warn('Operação bloqueada: Células travadas não podem ser movidas.');
+      return;
+    }
+
     if (!sourceCell || !sourceCell.subjectId) return;
 
     const sourceRelated = getAllRelatedClassIds(source.classId, activeWeek.classes);
@@ -799,7 +921,7 @@ export const ScheduleProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   };
 
-  const resetAllToDefaults = () => {
+  const resetToSampleSchool = () => {
     const sample = createInitialSampleWeek();
     const preSolved = generateScheduleWithSolver(
       sample.activeDays,
@@ -812,8 +934,27 @@ export const ScheduleProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       {}
     );
     sample.grid = preSolved.grid;
-    setWeeks([sample]);
+    const secondary = createSecondarySampleWeek();
+    secondary.grid = { ...preSolved.grid };
+
+    setWeeks([sample, secondary]);
     setActiveWeekId(sample.id);
+    setActiveTab('grade');
+    setHistory([]);
+    setHistoryIndex(-1);
+  };
+
+  const resetToEmptySchool = () => {
+    const emptyWeek = createEmptySampleWeek('Minha Grade Escolar', 'Semana Inicial');
+    setWeeks([emptyWeek]);
+    setActiveWeekId(emptyWeek.id);
+    setActiveTab('grade');
+    setHistory([]);
+    setHistoryIndex(-1);
+  };
+
+  const resetAllToDefaults = () => {
+    resetToSampleSchool();
   };
 
   return (
@@ -845,8 +986,12 @@ export const ScheduleProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         setLastSolverResult,
         createNewWeek,
         duplicateWeek,
+        duplicateWeekWithOptions,
         updateActiveWeek,
+        updateWeek,
         deleteWeek,
+        resetToSampleSchool,
+        resetToEmptySchool,
         updateTimeConfig,
         addClassGroup,
         updateClassGroup,

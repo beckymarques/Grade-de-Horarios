@@ -15,6 +15,7 @@ import { validateSchedule, resolveCellForClass } from './rulesEngine';
 export interface ExportFilterOptions {
   selectedDays?: DayOfWeek[];
   separateZip?: boolean;
+  includeTimestamp?: boolean; // Se deve incluir data e hora de emissão
 }
 
 /**
@@ -69,14 +70,17 @@ function sanitizeUnsupportedCssColors(clonedDoc: Document) {
  */
 function createExportableScheduleElement(
   week: WeekSchedule,
-  daysToRender?: DayOfWeek[]
+  daysToRender?: DayOfWeek[],
+  options?: ExportFilterOptions
 ): HTMLElement {
-  const { title, dateRange, activeDays, generatedSlots, classes, subjects, teachers, loads, rules, grid } = week;
+  const { title, dateRange, activeDays, generatedSlots, classes, subjects, teachers, loads, rules, grid, institutionName } = week;
   const targetDays = daysToRender && daysToRender.length > 0 ? daysToRender : activeDays;
   const validation = validateSchedule(grid, activeDays, generatedSlots, classes, subjects, teachers, rules, loads);
   const subjectMap = new Map(subjects.map((s) => [s.id, s]));
   const teacherMap = new Map(teachers.map((t) => [t.id, t]));
   const displayClasses = getDisplayClasses(classes);
+  const lessonSlotsCount = generatedSlots.filter((s) => s.type === 'lesson').length;
+  const showTimestamp = options?.includeTimestamp !== false;
 
   const container = document.createElement('div');
   container.id = 'clean_exportable_schedule_root';
@@ -102,11 +106,12 @@ function createExportableScheduleElement(
 
   headerDiv.innerHTML = `
     <div>
+      ${institutionName ? `<div style="font-size: 13px; font-weight: 700; color: #4338ca; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px;">${institutionName}</div>` : ''}
       <div style="font-size: 20px; font-weight: 800; color: #1e1b4b; text-transform: uppercase; letter-spacing: -0.5px;">
         ${title}
       </div>
       <div style="font-size: 12px; color: #475569; margin-top: 3px; font-weight: 500;">
-        Período: <strong style="color: #0f172a;">${dateRange || 'Semana Regular'}</strong> • Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+        Período: <strong style="color: #0f172a;">${dateRange || 'Semana Regular'}</strong>${showTimestamp ? ` • Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}` : ''}
       </div>
     </div>
     <div style="text-align: right; font-size: 11px; color: #64748b;">
@@ -114,7 +119,7 @@ function createExportableScheduleElement(
         ${displayClasses.length} Turmas
       </span>
       <span style="display: inline-block; background-color: #f1f5f9; color: #334155; padding: 4px 10px; border-radius: 6px; font-weight: 700;">
-        ${generatedSlots.length} Tempos/Dia
+        ${lessonSlotsCount} Tempos de Aula/Dia
       </span>
     </div>
   `;
@@ -345,16 +350,25 @@ function createExportableScheduleElement(
 /**
  * Builds an XLSX workbook for a specific list of days
  */
-function buildWorkbookForDays(week: WeekSchedule, days: DayOfWeek[]): XLSX.WorkBook {
-  const { title, activeDays, generatedSlots, classes, subjects, teachers, loads, rules, grid } = week;
+function buildWorkbookForDays(week: WeekSchedule, days: DayOfWeek[], options?: ExportFilterOptions): XLSX.WorkBook {
+  const { title, activeDays, generatedSlots, classes, subjects, teachers, loads, rules, grid, institutionName } = week;
   const validation = validateSchedule(grid, activeDays, generatedSlots, classes, subjects, teachers, rules, loads);
   const subjectMap = new Map(subjects.map((s) => [s.id, s]));
   const teacherMap = new Map(teachers.map((t) => [t.id, t]));
   const displayClasses = getDisplayClasses(classes);
+  const showTimestamp = options?.includeTimestamp !== false;
 
   const rows: any[][] = [];
+  if (institutionName) {
+    rows.push([institutionName.toUpperCase()]);
+  }
   rows.push([title.toUpperCase()]);
-  rows.push([`Período: ${week.dateRange}`, `Gerado em: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}`]);
+  
+  const headerMeta = [`Período: ${week.dateRange || 'Semana Regular'}`];
+  if (showTimestamp) {
+    headerMeta.push(`Gerado em: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}`);
+  }
+  rows.push(headerMeta);
   rows.push([]);
 
   for (const dayKey of days) {
@@ -466,7 +480,7 @@ export async function exportScheduleToExcel(
     for (const dayKey of targetDays) {
       const dayMeta = DAYS_OF_WEEK.find((d) => d.key === dayKey);
       const dayLabel = dayMeta ? dayMeta.label.replace(/\s+/g, '_') : dayKey;
-      const wb = buildWorkbookForDays(week, [dayKey]);
+      const wb = buildWorkbookForDays(week, [dayKey], options);
       const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
       zip.file(`Grade_${dayLabel}.xlsx`, wbout);
     }
@@ -480,7 +494,7 @@ export async function exportScheduleToExcel(
     return;
   }
 
-  const wb = buildWorkbookForDays(week, targetDays);
+  const wb = buildWorkbookForDays(week, targetDays, options);
   const safeFilename = `Grade_${week.title.replace(/[^a-zA-Z0-9_-]/g, '_')}.xlsx`;
   XLSX.writeFile(wb, safeFilename);
 }
@@ -508,7 +522,7 @@ export async function exportScheduleToPNG(
         const dayMeta = DAYS_OF_WEEK.find((d) => d.key === dayKey);
         const dayLabel = dayMeta ? dayMeta.label.replace(/\s+/g, '_') : dayKey;
 
-        const dayContainer = createExportableScheduleElement(week, [dayKey]);
+        const dayContainer = createExportableScheduleElement(week, [dayKey], options);
         document.body.appendChild(dayContainer);
 
         try {
@@ -548,7 +562,7 @@ export async function exportScheduleToPNG(
     }
 
     // Single Image with all selected days
-    const exportContainer = createExportableScheduleElement(week, targetDays);
+    const exportContainer = createExportableScheduleElement(week, targetDays, options);
     document.body.appendChild(exportContainer);
     const filename = customFilename || `Grade_${week.title.replace(/[^a-zA-Z0-9_-]/g, '_')}.png`;
 
@@ -632,7 +646,7 @@ export async function exportScheduleToPDF(
         const dayMeta = DAYS_OF_WEEK.find((d) => d.key === dayKey);
         const dayLabel = dayMeta ? dayMeta.label.replace(/\s+/g, '_') : dayKey;
 
-        const dayContainer = createExportableScheduleElement(week, [dayKey]);
+        const dayContainer = createExportableScheduleElement(week, [dayKey], options);
         document.body.appendChild(dayContainer);
 
         try {
@@ -684,7 +698,7 @@ export async function exportScheduleToPDF(
     }
 
     // Single Combined PDF
-    const exportContainer = createExportableScheduleElement(week, targetDays);
+    const exportContainer = createExportableScheduleElement(week, targetDays, options);
     document.body.appendChild(exportContainer);
     const pdfTitle = customTitle || week.title;
 
