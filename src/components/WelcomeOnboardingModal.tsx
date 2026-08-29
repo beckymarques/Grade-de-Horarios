@@ -36,26 +36,30 @@ export const WelcomeOnboardingModal: React.FC<WelcomeOnboardingModalProps> = ({
     onClose();
   };
 
+  const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
+
   const handleFileImport = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    setErrorMessage(null);
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
-        const parsed = JSON.parse(event.target?.result as string);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          importData(parsed);
+        const content = event.target?.result as string;
+        const res = importData(content);
+        if (res.isValid) {
           localStorage.setItem('prevest_has_onboarded_v1', 'true');
           onClose();
         } else {
-          alert('Arquivo JSON inválido. Verifique o formato do backup.');
+          setErrorMessage(res.error || 'O arquivo selecionado não é um backup válido do Gerador de Grade.');
         }
-      } catch (err) {
-        alert('Erro ao processar o arquivo de backup.');
+      } catch (err: any) {
+        setErrorMessage(`Erro ao processar arquivo: ${err?.message || 'Arquivo corrompido'}.`);
       }
     };
     reader.readAsText(file);
+    e.target.value = '';
   };
 
   return (
@@ -89,6 +93,19 @@ export const WelcomeOnboardingModal: React.FC<WelcomeOnboardingModalProps> = ({
             </button>
           )}
         </div>
+
+        {errorMessage && (
+          <div className="mt-4 p-3 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl text-xs flex items-center justify-between">
+            <span>{errorMessage}</span>
+            <button
+              type="button"
+              onClick={() => setErrorMessage(null)}
+              className="text-xs underline ml-2 hover:opacity-80"
+            >
+              Fechar
+            </button>
+          </div>
+        )}
 
         {/* 3 Main Choice Cards */}
         <div className="space-y-3.5 my-6 relative z-10">

@@ -92,6 +92,8 @@ export const WeeksList: React.FC = () => {
     setActiveTab('grade');
   };
 
+  const [importStatusMessage, setImportStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
   const handleFileImport = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -99,22 +101,51 @@ export const WeeksList: React.FC = () => {
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
-        const parsed = JSON.parse(event.target?.result as string);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          importData(parsed);
-          alert('Backup importado com sucesso!');
+        const content = event.target?.result as string;
+        const res = importData(content);
+        if (res.isValid) {
+          setImportStatusMessage({
+            type: 'success',
+            text: `Backup importado com sucesso! ${res.count || 1} grade(s) semanal(is) carregada(s).`,
+          });
+          setTimeout(() => setImportStatusMessage(null), 5000);
         } else {
-          alert('Arquivo JSON inválido.');
+          setImportStatusMessage({
+            type: 'error',
+            text: res.error || 'O arquivo selecionado não é um backup válido do Gerador de Grade.',
+          });
         }
-      } catch (err) {
-        alert('Erro ao ler arquivo de backup.');
+      } catch (err: any) {
+        setImportStatusMessage({
+          type: 'error',
+          text: `Erro ao processar arquivo: ${err?.message || 'Arquivo corrompido'}.`,
+        });
       }
     };
     reader.readAsText(file);
+    // Reset file input value so same file can be selected again if needed
+    e.target.value = '';
   };
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
+      {importStatusMessage && (
+        <div
+          className={`p-3.5 rounded-xl text-xs font-medium flex items-center justify-between border ${
+            importStatusMessage.type === 'success'
+              ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+              : 'bg-rose-50 text-rose-800 border-rose-200'
+          }`}
+        >
+          <span>{importStatusMessage.text}</span>
+          <button
+            onClick={() => setImportStatusMessage(null)}
+            className="text-xs underline ml-4 hover:opacity-80 cursor-pointer"
+          >
+            Fechar
+          </button>
+        </div>
+      )}
       
       {/* Header Banner */}
       <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">

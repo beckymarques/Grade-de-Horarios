@@ -118,6 +118,15 @@ export interface TeacherAbsence {
   reason?: string; // e.g. "Reunião de pesquisa", "Consulta"
 }
 
+export type TeacherAllowedShift =
+  | 'all'
+  | 'morning'
+  | 'afternoon'
+  | 'night'
+  | 'morning_afternoon'
+  | 'morning_night'
+  | 'afternoon_night';
+
 export interface Teacher {
   id: string;
   name: string; // "Prof. Carlos Eduardo"
@@ -126,7 +135,7 @@ export interface Teacher {
   sharedRoomId?: string; // if uses a shared physical room
   absences: TeacherAbsence[];
   maxConsecutiveLessons?: number; // e.g. 2 or 3
-  allowedShift?: 'morning' | 'afternoon' | 'all';
+  allowedShift?: TeacherAllowedShift;
   email?: string;
 }
 
@@ -235,7 +244,9 @@ export interface WindowTutor {
   slotId: string;
   teacherId: string;
   teacherName: string;
-  reason: string; // "Janela entre aulas das 07:50 e 09:50"
+  reason: string; // "Janela entre aulas das 07:50 e 09:50" ou "Ausente / Indisponível"
+  isAbsent?: boolean;
+  absenceReason?: string;
 }
 
 export interface WeekSchedule {

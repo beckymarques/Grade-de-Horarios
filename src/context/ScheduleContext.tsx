@@ -21,7 +21,8 @@ import {
 } from '../data/mockInitialData';
 import { calculateTimeSlots } from '../utils/timeCalculator';
 import { generateScheduleWithSolver, SolverResult } from '../utils/solver';
-import { validateSchedule, ValidationReport } from '../utils/rulesEngine';
+import { validateSchedule, ValidationReport, resolveCellForClass } from '../utils/rulesEngine';
+import { validateBackupJSON } from '../utils/backupValidator';
 
 export type ActiveTab = 'grade' | 'tempos' | 'turmas' | 'professores' | 'cargas' | 'regras' | 'semanas';
 
@@ -131,7 +132,7 @@ interface ScheduleContextType {
   redo: () => void;
 
   // Global backup
-  importData: (importedWeeks: WeekSchedule[]) => void;
+  importData: (rawInput: string | unknown) => { isValid: boolean; error?: string; count?: number };
   resetAllToDefaults: () => void;
 }
 
@@ -602,8 +603,23 @@ export const ScheduleProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const sourceKey = `${source.day}_${source.slotId}_${source.classId}`;
     const targetKey = `${target.day}_${target.slotId}_${target.classId}`;
 
-    const sourceCell = activeWeek.grid[sourceKey];
-    const targetCell = activeWeek.grid[targetKey];
+    const sourceCell =
+      resolveCellForClass(
+        activeWeek.grid,
+        source.day,
+        source.slotId,
+        source.classId,
+        activeWeek.classes
+      ) || activeWeek.grid[sourceKey];
+
+    const targetCell =
+      resolveCellForClass(
+        activeWeek.grid,
+        target.day,
+        target.slotId,
+        target.classId,
+        activeWeek.classes
+      ) || activeWeek.grid[targetKey];
 
     // Strict Lock Enforcement: Locked cells cannot be moved or swapped
     if (sourceCell?.isLocked || targetCell?.isLocked) {
@@ -651,8 +667,23 @@ export const ScheduleProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const sourceKey = `${source.day}_${source.slotId}_${source.classId}`;
     const targetKey = `${target.day}_${target.slotId}_${target.classId}`;
 
-    const sourceCell = activeWeek.grid[sourceKey];
-    const targetCell = activeWeek.grid[targetKey];
+    const sourceCell =
+      resolveCellForClass(
+        activeWeek.grid,
+        source.day,
+        source.slotId,
+        source.classId,
+        activeWeek.classes
+      ) || activeWeek.grid[sourceKey];
+
+    const targetCell =
+      resolveCellForClass(
+        activeWeek.grid,
+        target.day,
+        target.slotId,
+        target.classId,
+        activeWeek.classes
+      ) || activeWeek.grid[targetKey];
 
     // Strict Lock Enforcement: Locked cells cannot be moved or overwritten
     if (sourceCell?.isLocked || targetCell?.isLocked) {
@@ -914,11 +945,16 @@ export const ScheduleProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     });
   };
 
-  const importData = (importedWeeks: WeekSchedule[]) => {
-    if (Array.isArray(importedWeeks) && importedWeeks.length > 0) {
-      setWeeks(importedWeeks);
-      setActiveWeekId(importedWeeks[0].id);
+  const importData = (rawInput: string | unknown) => {
+    const val = validateBackupJSON(rawInput);
+    if (val.isValid && val.weeks && val.weeks.length > 0) {
+      setWeeks(val.weeks);
+      setActiveWeekId(val.weeks[0].id);
+      setHistory([]);
+      setHistoryIndex(-1);
+      return { isValid: true, count: val.weeks.length };
     }
+    return { isValid: false, error: val.error || 'Arquivo de backup inválido.' };
   };
 
   const resetToSampleSchool = () => {

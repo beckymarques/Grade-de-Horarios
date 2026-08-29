@@ -38,7 +38,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   activeWeek: propActiveWeek,
   allWeeks: propAllWeeks,
 }) => {
-  const { activeWeek: contextActiveWeek, weeks: contextWeeks } = useSchedule();
+  const { activeWeek: contextActiveWeek, weeks: contextWeeks, layoutTheme } = useSchedule();
   const currentActiveWeek = propActiveWeek || contextActiveWeek;
   const currentAllWeeks = propAllWeeks || contextWeeks;
 
@@ -81,19 +81,23 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   };
 
   const getEffectiveOptions = (): ExportFilterOptions => {
+    const base: ExportFilterOptions = {
+      layoutTheme: layoutTheme || 'classic_table',
+      includeTimestamp,
+    };
     if (exportScope === 'all_together') {
-      return { selectedDays: availableDays, separateZip: false, includeTimestamp };
+      return { ...base, selectedDays: availableDays, separateZip: false };
     }
     if (exportScope === 'single_day') {
-      return { selectedDays: [singleDay], separateZip: false, includeTimestamp };
+      return { ...base, selectedDays: [singleDay], separateZip: false };
     }
     if (exportScope === 'custom_days') {
-      return { selectedDays, separateZip: false, includeTimestamp };
+      return { ...base, selectedDays, separateZip: false };
     }
     if (exportScope === 'separate_zip') {
-      return { selectedDays, separateZip: true, includeTimestamp };
+      return { ...base, selectedDays, separateZip: true };
     }
-    return { selectedDays: availableDays, separateZip: false, includeTimestamp };
+    return { ...base, selectedDays: availableDays, separateZip: false };
   };
 
   const handleExportExcel = async () => {

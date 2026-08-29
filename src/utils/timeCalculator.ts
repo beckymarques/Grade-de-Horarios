@@ -137,3 +137,69 @@ export function calculateTimeSlots(config: DayTimeConfig): TimeCalculationResult
     suggestedAction,
   };
 }
+
+/**
+ * Determines which shift (morning, afternoon, or night) a time slot belongs to.
+ */
+export function getSlotShift(
+  slot: TimeSlot,
+  shiftRanges?: {
+    morningEnd?: string;
+    afternoonEnd?: string;
+  }
+): 'morning' | 'afternoon' | 'night' {
+  const startMin = parseTimeToMinutes(slot.startTime);
+
+  const morningEndMin = shiftRanges?.morningEnd
+    ? parseTimeToMinutes(shiftRanges.morningEnd)
+    : parseTimeToMinutes('12:30'); // Default 12:30
+
+  const afternoonEndMin = shiftRanges?.afternoonEnd
+    ? parseTimeToMinutes(shiftRanges.afternoonEnd)
+    : parseTimeToMinutes('18:00'); // Default 18:00
+
+  if (startMin < morningEndMin) {
+    return 'morning';
+  } else if (startMin < afternoonEndMin) {
+    return 'afternoon';
+  } else {
+    return 'night';
+  }
+}
+
+/**
+ * Checks whether a teacher's allowed shift configuration permits teaching in a given slot shift.
+ */
+export function isShiftAllowedForTeacher(
+  slotShift: 'morning' | 'afternoon' | 'night',
+  allowedShift?: string
+): boolean {
+  if (!allowedShift || allowedShift === 'all') return true;
+  if (allowedShift === 'morning') return slotShift === 'morning';
+  if (allowedShift === 'afternoon') return slotShift === 'afternoon';
+  if (allowedShift === 'night') return slotShift === 'night';
+  if (allowedShift === 'morning_afternoon') return slotShift === 'morning' || slotShift === 'afternoon';
+  if (allowedShift === 'morning_night') return slotShift === 'morning' || slotShift === 'night';
+  if (allowedShift === 'afternoon_night') return slotShift === 'afternoon' || slotShift === 'night';
+  return true;
+}
+
+export function getShiftLabel(shift?: string): string {
+  switch (shift) {
+    case 'morning':
+      return 'Manhã';
+    case 'afternoon':
+      return 'Tarde';
+    case 'night':
+      return 'Noite';
+    case 'morning_afternoon':
+      return 'Manhã e Tarde';
+    case 'morning_night':
+      return 'Manhã e Noite';
+    case 'afternoon_night':
+      return 'Tarde e Noite';
+    case 'all':
+    default:
+      return 'Todos os turnos (Livre)';
+  }
+}

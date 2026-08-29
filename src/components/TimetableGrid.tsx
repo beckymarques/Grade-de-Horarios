@@ -940,7 +940,13 @@ export const TimetableGrid: React.FC<TimetableGridProps> = ({
                                   <div
                                     key={tutor.teacherId}
                                     className={`inline-flex items-center gap-1 font-semibold rounded-md shadow-2xs ${
-                                      layoutTheme === 'school_board'
+                                      tutor.isAbsent
+                                        ? layoutTheme === 'school_board'
+                                          ? 'bg-rose-950 text-rose-200 px-2 py-0.5 text-[10px] font-bold border border-rose-700'
+                                          : layoutTheme === 'compact_density'
+                                          ? 'bg-rose-100 text-rose-800 px-1.5 py-0.2 text-[10px] border border-rose-200'
+                                          : 'bg-rose-100 text-rose-800 px-2 py-0.5 text-[11px] border border-rose-200'
+                                        : layoutTheme === 'school_board'
                                         ? 'bg-amber-400 text-slate-950 px-2 py-0.5 text-[10px] font-black uppercase'
                                         : layoutTheme === 'compact_density'
                                         ? 'bg-amber-100 text-amber-900 px-1.5 py-0.2 text-[10px] border border-amber-200'
@@ -948,8 +954,17 @@ export const TimetableGrid: React.FC<TimetableGridProps> = ({
                                     }`}
                                     title={tutor.reason}
                                   >
-                                    <span className="w-1.5 h-1.5 rounded-full bg-amber-600 shrink-0" />
+                                    <span
+                                      className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                                        tutor.isAbsent ? 'bg-rose-600' : 'bg-amber-600'
+                                      }`}
+                                    />
                                     <span className="truncate">{tutor.teacherName}</span>
+                                    {tutor.isAbsent && (
+                                      <span className="text-[10px] font-bold text-rose-700 ml-0.5">
+                                        (ausente)
+                                      </span>
+                                    )}
                                   </div>
                                 ))}
                               </div>

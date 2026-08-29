@@ -9,6 +9,7 @@ import {
   TimeSlot,
 } from '../types';
 import { areClassesInSameGroup } from './rulesEngine';
+import { getSlotShift, isShiftAllowedForTeacher } from './timeCalculator';
 
 export interface SolverResult {
   success: boolean;
@@ -262,6 +263,18 @@ export function generateScheduleWithSolver(
           valid: false,
           penalty: 99999,
           reason: `Professor ${teacher.shortName || teacher.name} ausente em ${day}${match.allDay ? ' (dia todo)' : ` no ${slot.name}`}`,
+        };
+      }
+    }
+
+    // 1.1 HARD PHYSICAL LAW: Teacher Shift Limitation (NEVER RELAXED)
+    if (teacher.allowedShift && teacher.allowedShift !== 'all') {
+      const slotShift = getSlotShift(slot);
+      if (!isShiftAllowedForTeacher(slotShift, teacher.allowedShift)) {
+        return {
+          valid: false,
+          penalty: 99999,
+          reason: `Turno ${slotShift === 'morning' ? 'da Manhã' : slotShift === 'afternoon' ? 'da Tarde' : 'da Noite'} não permitido para o professor ${teacher.shortName || teacher.name}`,
         };
       }
     }

@@ -12,6 +12,7 @@ import {
   SubjectLoad,
   getDisplayClasses,
 } from '../types';
+import { getSlotShift, isShiftAllowedForTeacher } from './timeCalculator';
 
 export function areClassesInSameGroup(
   classId1: string,
@@ -42,18 +43,18 @@ export function resolveCellForClass(
   classes: ClassGroup[]
 ): GridCell | undefined {
   // 1. Direct cell match
-  const direct = grid[`${day}_${slotId}_${classId}`];
-  if (direct && direct.subjectId) return direct;
+  const directKey = `${day}_${slotId}_${classId}`;
+  const direct = grid[directKey];
+  if (direct) {
+    return { ...direct, classId };
+  }
 
   // 2. Check if classId belongs to any active grouped class that has an allocation
   for (const cls of classes) {
     if (cls.isGrouped && cls.groupedClassIds && cls.groupedClassIds.includes(classId)) {
       const groupCell = grid[`${day}_${slotId}_${cls.id}`];
-      if (groupCell && groupCell.subjectId) return groupCell;
-
-      for (const memberId of cls.groupedClassIds) {
-        const memberCell = grid[`${day}_${slotId}_${memberId}`];
-        if (memberCell && memberCell.subjectId) return memberCell;
+      if (groupCell && groupCell.subjectId) {
+        return { ...groupCell, classId };
       }
     }
   }
@@ -63,19 +64,13 @@ export function resolveCellForClass(
   if (thisCls?.isGrouped && thisCls.groupedClassIds && thisCls.groupedClassIds.length > 0) {
     for (const memberId of thisCls.groupedClassIds) {
       const memberCell = grid[`${day}_${slotId}_${memberId}`];
-      if (memberCell && memberCell.subjectId) return memberCell;
+      if (memberCell && memberCell.subjectId) {
+        return { ...memberCell, classId };
+      }
     }
   }
 
-  // 4. If any class in the same group has an allocation
-  for (const cls of classes) {
-    if (areClassesInSameGroup(classId, cls.id, classes)) {
-      const otherCell = grid[`${day}_${slotId}_${cls.id}`];
-      if (otherCell && otherCell.subjectId) return otherCell;
-    }
-  }
-
-  return direct;
+  return undefined;
 }
 
 export function timeToMinutes(timeStr?: string): number {
@@ -237,6 +232,41 @@ export function validateSchedule(
               ruleName: 'Professor Ausente / Indisponível',
               message: `${teacher.name} possui ausência/indisponibilidade cadastrada em ${day} no ${slot.name}.${reason}`,
               suggestion: `Como corrigir: Remova ${teacher.shortName || teacher.name} deste tempo, atribua outro docente ou edite as ausências do professor na aba Professores.`,
+              severity: 'error',
+              teacherId: teacher.id,
+            });
+          }
+        }
+      }
+
+      // CHECK: Teacher Shift Limitation (morning, afternoon, night, or combinations)
+      for (const cell of slotCells) {
+        if (!cell.teacherId) continue;
+        const teacher = teacherMap.get(cell.teacherId);
+        if (teacher && teacher.allowedShift && teacher.allowedShift !== 'all') {
+          const slotShift = getSlotShift(slot);
+          if (!isShiftAllowedForTeacher(slotShift, teacher.allowedShift)) {
+            const shiftLabels: Record<string, string> = {
+              morning: 'Manhã',
+              afternoon: 'Tarde',
+              night: 'Noite',
+              morning_afternoon: 'Manhã e Tarde',
+              morning_night: 'Manhã e Noite',
+              afternoon_night: 'Tarde e Noite',
+            };
+            const currentShiftName = shiftLabels[slotShift] || slotShift;
+            const allowedShiftName = shiftLabels[teacher.allowedShift] || teacher.allowedShift;
+
+            conflicts.push({
+              id: `shift_limit_${cell.id}_${day}_${slot.id}`,
+              cellId: cell.id,
+              day,
+              slotId: slot.id,
+              classId: cell.classId,
+              type: 'teacher_class_shift_limit',
+              ruleName: 'Restrição de Turno do Professor',
+              message: `${teacher.name} possui restrição de turno (${allowedShiftName}) e foi alocado no ${slot.name} (${slot.startTime}–${slot.endTime}), que pertence ao turno da ${currentShiftName}.`,
+              suggestion: `Como corrigir: Mova a aula para o turno permitido do professor (${allowedShiftName}) ou altere a restrição do docente na aba Professores.`,
               severity: 'error',
               teacherId: teacher.id,
             });
@@ -591,18 +621,36 @@ export function validateSchedule(
       }
 
       for (const teacher of teachers) {
-        const isAbsent = teacher.absences?.some(
-          (a) => a.day === day && (a.allDay || !a.slotIds || a.slotIds.length === 0 || a.slotIds.includes(slot.id))
-        );
-        if (isAbsent) continue;
+        if (teachingTeacherIds.has(teacher.id)) continue;
 
-        if (!teachingTeacherIds.has(teacher.id)) {
+        // Check if teacher is absent on this day/slot
+        const matchingAbsence = teacher.absences?.find(
+          (a) =>
+            a.day === day &&
+            (a.allDay || !a.slotIds || a.slotIds.length === 0 || a.slotIds.includes(slot.id))
+        );
+
+        if (matchingAbsence) {
+          const reasonText = matchingAbsence.reason
+            ? `Ausente (${matchingAbsence.reason})`
+            : 'Ausente / Indisponível no período';
+          windowTutors.push({
+            day,
+            slotId: slot.id,
+            teacherId: teacher.id,
+            teacherName: `${teacher.shortName || teacher.name} (ausente)`,
+            reason: reasonText,
+            isAbsent: true,
+            absenceReason: matchingAbsence.reason,
+          });
+        } else {
           windowTutors.push({
             day,
             slotId: slot.id,
             teacherId: teacher.id,
             teacherName: teacher.shortName || teacher.name,
             reason: `Disponível para tutoria/plantão no ${slot.name} (${slot.startTime}–${slot.endTime})`,
+            isAbsent: false,
           });
         }
       }
@@ -659,13 +707,13 @@ export function validateSchedule(
         difference,
       });
 
-      // ALWAYS emit a validation notice if load is not fulfilled or exceeds target (Severity: ERROR)
+      // Emit validation notice if exact_load_match rule is active or when workload is violated
       if (difference !== 0) {
         const isDeficit = difference < 0;
-        const severity: ConflictSeverity = 'error';
+        const isRuleActive = exactRule ? exactRule.isEnabled : true;
+        const severity: ConflictSeverity = exactRule ? (exactRule.isMandatory ? 'error' : 'warning') : 'warning';
 
-        // 1. If subject is allocated in some slots, attach workload status to EVERY slot where it appears
-        if (allocatedSlots.length > 0) {
+        if (isRuleActive && allocatedSlots.length > 0) {
           for (const alloc of allocatedSlots) {
             conflicts.push({
               id: `load_mismatch_${loadId}_${alloc.day}_${alloc.slotId}_${cls.id}`,
@@ -683,22 +731,6 @@ export function validateSchedule(
               suggestion: isDeficit
                 ? `Como corrigir: Aloque as ${Math.abs(difference)} aula(s) restante(s) de ${sub.shortName} na turma ${cls.name} ou clique em "Gerar Grade".`
                 : `Como corrigir: Remova ${difference} aula(s) excedente(s) de ${sub.shortName} na turma ${cls.name}.`,
-              severity,
-              subjectId: sub.id,
-            });
-          }
-        } else if (target > 0) {
-          // If 0 lessons allocated, attach notice to all active days in the first lesson slot so it appears in the live validation column
-          for (const day of activeDays) {
-            conflicts.push({
-              id: `load_zero_${loadId}_${day}_${cls.id}`,
-              day,
-              slotId: lessonSlots[0]?.id || 'lesson_1',
-              classId: cls.id,
-              type: 'exact_load_match',
-              ruleName: `Carga Horária Pendente (${sub.shortName || sub.name})`,
-              message: `${cls.name}: 0 de ${target} aulas alocadas para ${sub.name} (faltam ${target} aulas).`,
-              suggestion: `Como corrigir: Aloque as aulas de ${sub.name} para a turma ${cls.name} ou utilize o gerador automático.`,
               severity,
               subjectId: sub.id,
             });
