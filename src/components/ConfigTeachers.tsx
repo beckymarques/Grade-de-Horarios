@@ -23,6 +23,8 @@ import {
   TeacherAbsence,
 } from '../types';
 import { getShiftLabel } from '../utils/timeCalculator';
+import { BulkTeacherSubjectModal } from './BulkTeacherSubjectModal';
+import { Sparkles } from 'lucide-react';
 
 export const ConfigTeachers: React.FC = () => {
   const {
@@ -37,6 +39,7 @@ export const ConfigTeachers: React.FC = () => {
   } = useSchedule();
 
   const [activeSubTab, setActiveSubTab] = useState<'teachers' | 'subjects' | 'rooms'>('teachers');
+  const [showBulkModal, setShowBulkModal] = useState<boolean>(false);
 
   // Teacher Form State
   const [editingTeacherId, setEditingTeacherId] = useState<string | null>(null);
@@ -270,17 +273,28 @@ export const ConfigTeachers: React.FC = () => {
               Lista de Professores & Disponibilidade
             </h3>
             {!isAddingTeacher && !editingTeacherId && (
-              <button
-                id="btn_add_teacher"
-                onClick={() => {
-                  resetTeacherForm();
-                  setIsAddingTeacher(true);
-                }}
-                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-xs transition"
-              >
-                <Plus className="w-4 h-4" />
-                Cadastrar Professor
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  id="btn_bulk_teachers"
+                  onClick={() => setShowBulkModal(true)}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold text-amber-900 bg-amber-100 hover:bg-amber-200 border border-amber-300 rounded-xl shadow-2xs transition active:scale-95 cursor-pointer"
+                >
+                  <Sparkles className="w-4 h-4 text-amber-600" />
+                  <span>⚡ Cadastro em Massa</span>
+                </button>
+                <button
+                  id="btn_add_teacher"
+                  onClick={() => {
+                    resetTeacherForm();
+                    setIsAddingTeacher(true);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-xs transition cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" />
+                  Cadastrar Professor
+                </button>
+              </div>
             )}
           </div>
 
@@ -911,6 +925,11 @@ export const ConfigTeachers: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Bulk Teachers & Subjects Modal */}
+      {showBulkModal && (
+        <BulkTeacherSubjectModal onClose={() => setShowBulkModal(false)} />
       )}
     </div>
   );

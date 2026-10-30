@@ -31,8 +31,11 @@ export function calculateTimeSlots(config: DayTimeConfig): TimeCalculationResult
     totalWindowMinutes += 24 * 60; // overnight fallback
   }
 
-  const totalIntervalsMinutes = config.intervals.reduce((acc, i) => acc + (Number(i.durationMinutes) || 0), 0);
-  const totalEventsMinutes = config.events.reduce((acc, e) => acc + (Number(e.durationMinutes) || 0), 0);
+  const activeIntervals = (config.intervals || []).filter((i: any) => i.isEnabled !== false);
+  const activeEvents = (config.events || []).filter((e) => e.isEnabled !== false);
+
+  const totalIntervalsMinutes = activeIntervals.reduce((acc, i) => acc + (Number(i.durationMinutes) || 0), 0);
+  const totalEventsMinutes = activeEvents.reduce((acc, e) => acc + (Number(e.durationMinutes) || 0), 0);
   const availableForLessons = totalWindowMinutes - totalIntervalsMinutes - totalEventsMinutes;
 
   const lessonCount = Math.max(1, config.targetLessonCount || 6);
@@ -75,7 +78,7 @@ export function calculateTimeSlots(config: DayTimeConfig): TimeCalculationResult
     currentMin = lessonEnd;
 
     // Check intervals configured after this lesson
-    const matchingIntervals = config.intervals.filter((i) => i.afterLessonNumber === currentLessonNum);
+    const matchingIntervals = activeIntervals.filter((i) => i.afterLessonNumber === currentLessonNum);
     for (const interval of matchingIntervals) {
       const dur = Number(interval.durationMinutes) || 15;
       slots.push({
@@ -91,7 +94,7 @@ export function calculateTimeSlots(config: DayTimeConfig): TimeCalculationResult
     }
 
     // Check events configured after this lesson
-    const matchingEvents = config.events.filter((e) => e.afterLessonNumber === currentLessonNum);
+    const matchingEvents = activeEvents.filter((e) => e.afterLessonNumber === currentLessonNum);
     for (const event of matchingEvents) {
       const dur = Number(event.durationMinutes) || 30;
       slots.push({

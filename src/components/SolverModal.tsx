@@ -39,18 +39,33 @@ export const SolverModal: React.FC<SolverModalProps> = ({ onClose }) => {
   const handleRunSolver = () => {
     setIsGenerating(true);
     setTimeout(() => {
-      const solverRes = generateGrid();
-      setResult(solverRes);
-      setIsGenerating(false);
+      try {
+        const solverRes = generateGrid();
+        setResult(solverRes);
+        setIsGenerating(false);
 
-      if (solverRes.success) {
-        confetti({
-          particleCount: 80,
-          spread: 70,
-          origin: { y: 0.6 },
+        if (solverRes.success || solverRes.allocatedCount > 0) {
+          confetti({
+            particleCount: 80,
+            spread: 70,
+            origin: { y: 0.6 },
+          });
+        }
+      } catch (err: any) {
+        console.error('Erro ao gerar grade:', err);
+        setIsGenerating(false);
+        setResult({
+          success: false,
+          grid: activeWeek.grid || {},
+          allocatedCount: 0,
+          totalTargetCount: 0,
+          violations: ['Erro inesperado na execução do gerador: ' + (err?.message || 'Falha interna')],
+          diagnostics: ['Ocorreu um erro no cálculo. Verifique se as turmas e matérias possuem dados válidos.'],
+          suggestedRelaxations: ['Tente simplificar regras ou recarregar a página.'],
+          durationMs: 0,
         });
       }
-    }, 400);
+    }, 300);
   };
 
   const handleGoToGrid = () => {
@@ -205,20 +220,25 @@ export const SolverModal: React.FC<SolverModalProps> = ({ onClose }) => {
             </button>
             <button
               type="button"
+              id="btn_run_solver_now"
               disabled={isGenerating}
               onClick={handleRunSolver}
-              className="inline-flex items-center gap-2 px-5 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 rounded-xl shadow-xs transition active:scale-95"
+              className="inline-flex items-center gap-2 px-5 py-2.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 rounded-xl shadow-xs transition active:scale-95 cursor-pointer"
             >
               <Sparkles className="w-4 h-4 text-amber-300" />
-              <span>{isGenerating ? 'Calculando Grade...' : 'Executar Algoritmo'}</span>
+              <span>{isGenerating ? 'Calculando Grade...' : '✨ Gerar Grade Agora'}</span>
             </button>
-            {result?.success && (
+            {result && (
               <button
                 type="button"
                 onClick={handleGoToGrid}
-                className="inline-flex items-center gap-1 px-4 py-2 text-xs font-semibold text-emerald-700 bg-emerald-100 hover:bg-emerald-200 rounded-xl transition"
+                className={`inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-xl transition cursor-pointer ${
+                  result.success
+                    ? 'text-emerald-700 bg-emerald-100 hover:bg-emerald-200'
+                    : 'text-indigo-700 bg-indigo-100 hover:bg-indigo-200'
+                }`}
               >
-                <span>Ver Grade</span>
+                <span>Visualizar na Grade ({result.allocatedCount} aulas)</span>
                 <ArrowRight className="w-3.5 h-3.5" />
               </button>
             )}

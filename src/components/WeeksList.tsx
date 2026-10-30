@@ -18,12 +18,14 @@ import {
   Compass,
   Building2,
   X,
+  Laptop,
+  Globe,
 } from 'lucide-react';
 import { useSchedule } from '../context/ScheduleContext';
 import { GridCell, WeekSchedule } from '../types';
 import { exportBackupJSON } from '../utils/exportEngine';
 import { DuplicateWeekModal } from './DuplicateWeekModal';
-import { WelcomeOnboardingModal } from './WelcomeOnboardingModal';
+import { WelcomeTourModal } from './WelcomeTourModal';
 
 export const WeeksList: React.FC = () => {
   const {
@@ -46,10 +48,14 @@ export const WeeksList: React.FC = () => {
   const [editTitle, setEditTitle] = useState('');
   const [editDateRange, setEditDateRange] = useState('');
   const [editInstitutionName, setEditInstitutionName] = useState('');
+  const [editModality, setEditModality] = useState<'presencial' | 'remoto' | 'hibrido'>('presencial');
+  const [editRemotePlatform, setEditRemotePlatform] = useState('');
 
   const [newTitle, setNewTitle] = useState('');
   const [newDateRange, setNewDateRange] = useState('');
   const [creationMode, setCreationMode] = useState<'placeholder' | 'empty'>('placeholder');
+  const [newModality, setNewModality] = useState<'presencial' | 'remoto' | 'hibrido'>('presencial');
+  const [newRemotePlatform, setNewRemotePlatform] = useState('');
 
   const handleOpenDuplicateModal = (weekId: string) => {
     const source = weeks.find((w) => w.id === weekId);
@@ -62,6 +68,8 @@ export const WeeksList: React.FC = () => {
     setEditTitle(week.title);
     setEditDateRange(week.dateRange);
     setEditInstitutionName(week.institutionName || '');
+    setEditModality(week.modality || 'presencial');
+    setEditRemotePlatform(week.remotePlatform || '');
   };
 
   const handleSaveEdit = (e: React.FormEvent) => {
@@ -72,6 +80,8 @@ export const WeeksList: React.FC = () => {
       title: editTitle.trim(),
       dateRange: editDateRange.trim() || 'Semana Regular',
       institutionName: editInstitutionName.trim() || undefined,
+      modality: editModality,
+      remotePlatform: editRemotePlatform.trim() || undefined,
     });
 
     setWeekToEdit(null);
@@ -80,10 +90,18 @@ export const WeeksList: React.FC = () => {
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTitle.trim()) return;
-    createNewWeek(newTitle, newDateRange || 'Próxima Semana', creationMode);
+    createNewWeek(
+      newTitle,
+      newDateRange || 'Próxima Semana',
+      creationMode,
+      newModality,
+      newRemotePlatform.trim() || undefined
+    );
     setNewTitle('');
     setNewDateRange('');
     setCreationMode('placeholder');
+    setNewModality('presencial');
+    setNewRemotePlatform('');
     setShowCreateModal(false);
   };
 
@@ -224,11 +242,27 @@ export const WeeksList: React.FC = () => {
               <div>
                 <div className="flex items-start justify-between gap-2">
                   <div className="space-y-0.5">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5 flex-wrap">
                       <span className="font-bold text-sm text-slate-900">{week.title}</span>
                       {isActive && (
                         <span className="bg-indigo-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
                           Em Edição
+                        </span>
+                      )}
+                      {week.modality === 'remoto' ? (
+                        <span className="inline-flex items-center gap-1 bg-blue-100 text-blue-700 text-[10px] font-bold px-2 py-0.5 rounded-full border border-blue-200">
+                          <Laptop className="w-3 h-3" />
+                          Remota
+                        </span>
+                      ) : week.modality === 'hibrido' ? (
+                        <span className="inline-flex items-center gap-1 bg-purple-100 text-purple-700 text-[10px] font-bold px-2 py-0.5 rounded-full border border-purple-200">
+                          <Globe className="w-3 h-3" />
+                          Híbrida
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-600 text-[10px] font-medium px-2 py-0.5 rounded-full border border-slate-200">
+                          <Building2 className="w-3 h-3" />
+                          Presencial
                         </span>
                       )}
                     </div>
@@ -238,7 +272,7 @@ export const WeeksList: React.FC = () => {
                         type="button"
                         onClick={() => handleStartEdit(week)}
                         className="inline-flex items-center gap-0.5 text-indigo-600 hover:text-indigo-800 hover:underline text-[11px] font-semibold ml-1 cursor-pointer"
-                        title="Editar título e período desta semana"
+                        title="Editar título, período e modalidade desta semana"
                       >
                         <Pencil className="w-3 h-3" />
                         Editar
@@ -330,9 +364,9 @@ export const WeeksList: React.FC = () => {
         />
       )}
 
-      {/* Welcome / Onboarding Modal */}
+      {/* Guided Welcome Tour Modal */}
       {showWelcomeModal && (
-        <WelcomeOnboardingModal
+        <WelcomeTourModal
           onClose={() => setShowWelcomeModal(false)}
         />
       )}
@@ -374,6 +408,59 @@ export const WeeksList: React.FC = () => {
                   className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
                   placeholder="Ex: 29/08/2026 a 04/09/2026"
                 />
+              </div>
+
+              {/* Modality Selection */}
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">
+                  Modalidade das Aulas desta Semana
+                </label>
+                <div className="grid grid-cols-3 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setNewModality('presencial')}
+                    className={`py-1.5 px-2 rounded-lg text-xs font-medium border text-center transition cursor-pointer ${
+                      newModality === 'presencial'
+                        ? 'bg-indigo-50 border-indigo-500 text-indigo-700 font-bold'
+                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    🏫 Presencial
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setNewModality('remoto')}
+                    className={`py-1.5 px-2 rounded-lg text-xs font-medium border text-center transition cursor-pointer ${
+                      newModality === 'remoto'
+                        ? 'bg-blue-50 border-blue-500 text-blue-700 font-bold'
+                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    💻 Remoto
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setNewModality('hibrido')}
+                    className={`py-1.5 px-2 rounded-lg text-xs font-medium border text-center transition cursor-pointer ${
+                      newModality === 'hibrido'
+                        ? 'bg-purple-50 border-purple-500 text-purple-700 font-bold'
+                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    🌐 Híbrido
+                  </button>
+                </div>
+                {newModality !== 'presencial' && (
+                  <div className="mt-2">
+                    <input
+                      type="text"
+                      value={newRemotePlatform}
+                      onChange={(e) => setNewRemotePlatform(e.target.value)}
+                      placeholder="Plataforma/Link (ex: Google Meet, Zoom, Teams)"
+                      className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                    />
+                  </div>
+                )}
               </div>
 
               {/* Mode Selection */}
@@ -487,6 +574,59 @@ export const WeeksList: React.FC = () => {
                   className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
                   placeholder="Ex: 29/08/2026 a 04/09/2026"
                 />
+              </div>
+
+              {/* Modality Selection */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Modalidade desta Semana
+                </label>
+                <div className="grid grid-cols-3 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setEditModality('presencial')}
+                    className={`py-1.5 px-2 rounded-lg text-xs font-medium border text-center transition cursor-pointer ${
+                      editModality === 'presencial'
+                        ? 'bg-indigo-50 border-indigo-500 text-indigo-700 font-bold'
+                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    🏫 Presencial
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditModality('remoto')}
+                    className={`py-1.5 px-2 rounded-lg text-xs font-medium border text-center transition cursor-pointer ${
+                      editModality === 'remoto'
+                        ? 'bg-blue-50 border-blue-500 text-blue-700 font-bold'
+                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    💻 Remoto
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditModality('hibrido')}
+                    className={`py-1.5 px-2 rounded-lg text-xs font-medium border text-center transition cursor-pointer ${
+                      editModality === 'hibrido'
+                        ? 'bg-purple-50 border-purple-500 text-purple-700 font-bold'
+                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    🌐 Híbrido
+                  </button>
+                </div>
+                {editModality !== 'presencial' && (
+                  <div className="mt-2">
+                    <input
+                      type="text"
+                      value={editRemotePlatform}
+                      onChange={(e) => setEditRemotePlatform(e.target.value)}
+                      placeholder="Plataforma/Link (ex: Google Meet, Zoom, Teams)"
+                      className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                    />
+                  </div>
+                )}
               </div>
 
               <div>

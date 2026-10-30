@@ -121,8 +121,15 @@ function createExportableScheduleElement(
   headerDiv.innerHTML = `
     <div>
       ${institutionName ? `<div style="font-size: 13px; font-weight: 700; color: ${isSchoolBoard ? '#fbbf24' : '#4338ca'}; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px;">${institutionName}</div>` : ''}
-      <div style="font-size: 20px; font-weight: 800; color: ${isSchoolBoard ? '#f8fafc' : '#1e1b4b'}; text-transform: uppercase; letter-spacing: -0.5px;">
-        ${title}
+      <div style="font-size: 20px; font-weight: 800; color: ${isSchoolBoard ? '#f8fafc' : '#1e1b4b'}; text-transform: uppercase; letter-spacing: -0.5px; display: flex; align-items: center; flex-wrap: wrap; gap: 8px;">
+        <span>${title}</span>
+        ${
+          week.modality === 'remoto'
+            ? `<span style="font-size: 11px; font-weight: 700; background-color: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; padding: 2px 8px; border-radius: 6px; letter-spacing: 0;">💻 REMOTA / ONLINE${week.remotePlatform ? ` (${week.remotePlatform})` : ''}</span>`
+            : week.modality === 'hibrido'
+            ? `<span style="font-size: 11px; font-weight: 700; background-color: #f5f3ff; color: #6d28d9; border: 1px solid #ddd6fe; padding: 2px 8px; border-radius: 6px; letter-spacing: 0;">🌐 HÍBRIDA${week.remotePlatform ? ` (${week.remotePlatform})` : ''}</span>`
+            : ''
+        }
       </div>
       <div style="font-size: 12px; color: ${isSchoolBoard ? '#94a3b8' : '#475569'}; margin-top: 3px; font-weight: 500;">
         Período: <strong style="color: ${isSchoolBoard ? '#fbbf24' : '#0f172a'};">${dateRange || 'Semana Regular'}</strong>${showTimestamp ? ` • Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}` : ''}
@@ -467,6 +474,13 @@ function buildWorkbookForDays(week: WeekSchedule, days: DayOfWeek[], options?: E
   rows.push([title.toUpperCase()]);
   
   const headerMeta = [`Período: ${week.dateRange || 'Semana Regular'}`];
+  if (week.modality === 'remoto') {
+    headerMeta.push(`Modalidade: Remoto / Online${week.remotePlatform ? ` (${week.remotePlatform})` : ''}`);
+  } else if (week.modality === 'hibrido') {
+    headerMeta.push(`Modalidade: Híbrido${week.remotePlatform ? ` (${week.remotePlatform})` : ''}`);
+  } else {
+    headerMeta.push(`Modalidade: Presencial`);
+  }
   if (showTimestamp) {
     headerMeta.push(`Gerado em: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}`);
   }

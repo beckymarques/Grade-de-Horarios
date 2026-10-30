@@ -84,7 +84,13 @@ interface ScheduleContextType {
   setLastSolverResult: (res: SolverResult | null) => void;
 
   // Week CRUD
-  createNewWeek: (title: string, dateRange: string, mode?: 'placeholder' | 'empty') => WeekSchedule;
+  createNewWeek: (
+    title: string,
+    dateRange: string,
+    mode?: 'placeholder' | 'empty',
+    modality?: 'presencial' | 'remoto' | 'hibrido',
+    remotePlatform?: string
+  ) => WeekSchedule;
   duplicateWeek: (sourceWeekId: string, newTitle: string, newDateRange: string) => WeekSchedule;
   duplicateWeekWithOptions: (
     sourceWeekId: string,
@@ -130,6 +136,25 @@ interface ScheduleContextType {
   canRedo: boolean;
   undo: () => void;
   redo: () => void;
+
+  // Unsaved changes guard for Tempos do Dia
+  hasUnsavedTimesChanges: boolean;
+  setHasUnsavedTimesChanges: (val: boolean) => void;
+  pendingTabChange: ActiveTab | null;
+  setPendingTabChange: (tab: ActiveTab | null) => void;
+  confirmTabChange: (action: 'save' | 'discard' | 'cancel') => void;
+  registerSaveTimesCallback: (cb: (() => void) | null) => void;
+  registerDiscardTimesCallback: (cb: (() => void) | null) => void;
+
+  // Bulk teacher and subject creation
+  bulkAddTeachersAndSubjects: (items: {
+    teacherName: string;
+    shortName?: string;
+    subjectNames: string[];
+    allowedShift?: any;
+    maxConsecutive?: number;
+    email?: string;
+  }[]) => { createdTeachers: number; createdSubjects: number };
 
   // Global backup
   importData: (rawInput: string | unknown) => { isValid: boolean; error?: string; count?: number };
@@ -244,7 +269,60 @@ export const ScheduleProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     localStorage.setItem(STORAGE_KEY_ACTIVE_WEEK, id);
   };
 
-  const [activeTab, setActiveTab] = useState<ActiveTab>('grade');
+  const [activeTab, setActiveTabRaw] = useState<ActiveTab>('grade');
+
+  // Unsaved changes guard for Tempos do Dia
+  const [hasUnsavedTimesChanges, setHasUnsavedTimesChanges] = useState<boolean>(false);
+  const [pendingTabChange, setPendingTabChange] = useState<ActiveTab | null>(null);
+  const saveTimesCbRef = React.useRef<(() => void) | null>(null);
+  const discardTimesCbRef = React.useRef<(() => void) | null>(null);
+
+  const registerSaveTimesCallback = useCallback((cb: (() => void) | null) => {
+    saveTimesCbRef.current = cb;
+  }, []);
+
+  const registerDiscardTimesCallback = useCallback((cb: (() => void) | null) => {
+    discardTimesCbRef.current = cb;
+  }, []);
+
+  const setActiveTab = useCallback(
+    (tab: ActiveTab) => {
+      if (activeTab === 'tempos' && tab !== 'tempos' && hasUnsavedTimesChanges) {
+        setPendingTabChange(tab);
+        return;
+      }
+      setActiveTabRaw(tab);
+    },
+    [activeTab, hasUnsavedTimesChanges]
+  );
+
+  const confirmTabChange = useCallback(
+    (action: 'save' | 'discard' | 'cancel') => {
+      if (action === 'save') {
+        if (saveTimesCbRef.current) {
+          saveTimesCbRef.current();
+        }
+        setHasUnsavedTimesChanges(false);
+        if (pendingTabChange) {
+          setActiveTabRaw(pendingTabChange);
+          setPendingTabChange(null);
+        }
+      } else if (action === 'discard') {
+        if (discardTimesCbRef.current) {
+          discardTimesCbRef.current();
+        }
+        setHasUnsavedTimesChanges(false);
+        if (pendingTabChange) {
+          setActiveTabRaw(pendingTabChange);
+          setPendingTabChange(null);
+        }
+      } else {
+        // cancel
+        setPendingTabChange(null);
+      }
+    },
+    [pendingTabChange]
+  );
 
   const [layoutTheme, setLayoutThemeState] = useState<TimetableLayoutTheme>(() => {
     return (localStorage.getItem('prevest_layout_theme_v1') as TimetableLayoutTheme) || 'classic_table';
@@ -266,6 +344,14 @@ export const ScheduleProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const activeWeek = useMemo(() => {
     return weeks.find((w) => w.id === activeWeekId) || weeks[0] || null;
   }, [weeks, activeWeekId]);
+
+  // Sync history when active week changes
+  useEffect(() => {
+    if (activeWeek) {
+      setHistory([activeWeek.grid || {}]);
+      setHistoryIndex(0);
+    }
+  }, [activeWeekId]);
 
   // Keep selectedDay in sync
   useEffect(() => {
@@ -373,16 +459,24 @@ export const ScheduleProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const createNewWeek = (
     title: string,
     dateRange: string,
-    mode: 'placeholder' | 'empty' = 'placeholder'
+    mode: 'placeholder' | 'empty' = 'placeholder',
+    modality: 'presencial' | 'remoto' | 'hibrido' = 'presencial',
+    remotePlatform?: string
   ): WeekSchedule => {
     const newWeek: WeekSchedule =
       mode === 'empty'
-        ? createEmptySampleWeek(title, dateRange)
+        ? {
+            ...createEmptySampleWeek(title, dateRange),
+            modality,
+            remotePlatform,
+          }
         : {
             ...createInitialSampleWeek(),
             id: `week_${Date.now()}`,
             title,
             dateRange,
+            modality,
+            remotePlatform,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
             grid: {},
@@ -747,6 +841,43 @@ export const ScheduleProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   };
 
+  // Global keyboard shortcuts for Undo / Redo
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        if (e.shiftKey) {
+          e.preventDefault();
+          if (historyIndex < history.length - 1) {
+            redo();
+          }
+        } else {
+          e.preventDefault();
+          if (historyIndex > 0) {
+            undo();
+          }
+        }
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        if (historyIndex < history.length - 1) {
+          redo();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [historyIndex, history]);
+
   // Solver execution
   const generateGrid = (): SolverResult => {
     if (!activeWeek) {
@@ -756,10 +887,44 @@ export const ScheduleProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         allocatedCount: 0,
         totalTargetCount: 0,
         violations: ['Sem semana ativa'],
-        diagnostics: ['Nenhuma semana selecionada'],
+        diagnostics: ['Nenhuma semana selecionada.'],
         suggestedRelaxations: [],
         durationMs: 0,
       };
+    }
+
+    if (activeWeek.classes.length === 0) {
+      const emptyResult: SolverResult = {
+        success: false,
+        grid: activeWeek.grid || {},
+        allocatedCount: 0,
+        totalTargetCount: 0,
+        violations: ['Nenhuma turma cadastrada'],
+        diagnostics: ['Cadastre ao menos uma turma na aba "Turmas" para poder gerar os horários da semana.'],
+        suggestedRelaxations: ['Acesse a aba Turmas para adicionar suas turmas.'],
+        durationMs: 0,
+      };
+      setLastSolverResult(emptyResult);
+      return emptyResult;
+    }
+
+    // Auto-create balanced default loads if user has classes & subjects but zero loads configured
+    let effectiveLoads = activeWeek.loads;
+    if (effectiveLoads.length === 0 && activeWeek.subjects.length > 0) {
+      const generatedLoads: SubjectLoad[] = [];
+      const nonGrouped = activeWeek.classes.filter((c) => !c.isGrouped);
+      for (const cls of nonGrouped) {
+        for (const sub of activeWeek.subjects) {
+          generatedLoads.push({
+            id: `load_${cls.id}_${sub.id}`,
+            classId: cls.id,
+            subjectId: sub.id,
+            lessonsPerWeek: sub.isHeavy ? 4 : 3,
+          });
+        }
+      }
+      effectiveLoads = generatedLoads;
+      updateActiveWeek({ loads: generatedLoads });
     }
 
     const result = generateScheduleWithSolver(
@@ -769,17 +934,95 @@ export const ScheduleProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       activeWeek.subjects,
       activeWeek.teachers,
       activeWeek.rules,
-      activeWeek.loads,
+      effectiveLoads,
       activeWeek.grid
     );
 
     setLastSolverResult(result);
+    // Always apply generated timetable allocations
     if (result.success || Object.keys(result.grid).length > 0) {
       pushGridHistory(result.grid);
       updateActiveWeek({ grid: result.grid });
     }
 
     return result;
+  };
+
+  const bulkAddTeachersAndSubjects = (items: {
+    teacherName: string;
+    shortName?: string;
+    subjectNames: string[];
+    allowedShift?: any;
+    maxConsecutive?: number;
+    email?: string;
+  }[]): { createdTeachers: number; createdSubjects: number } => {
+    if (!activeWeek) return { createdTeachers: 0, createdSubjects: 0 };
+
+    const existingSubjects = [...activeWeek.subjects];
+    const existingTeachers = [...activeWeek.teachers];
+    let createdSubjectsCount = 0;
+    let createdTeachersCount = 0;
+
+    const palette = [
+      '#2563eb', '#0891b2', '#059669', '#16a34a', '#d97706',
+      '#b45309', '#dc2626', '#8b5cf6', '#ea580c', '#4f46e5',
+      '#0d9488', '#0284c7', '#7c3aed', '#c026d3', '#db2777'
+    ];
+
+    for (const item of items) {
+      if (!item.teacherName.trim()) continue;
+      const assignedSubjectIds: string[] = [];
+
+      for (const rawSubName of item.subjectNames) {
+        const subName = rawSubName.trim();
+        if (!subName) continue;
+
+        let foundSub = existingSubjects.find(
+          (s) => s.name.trim().toLowerCase() === subName.toLowerCase()
+        );
+
+        if (!foundSub) {
+          const color = palette[existingSubjects.length % palette.length];
+          const isHeavy = /matem[áa]tica|f[íi]sica|qu[íi]mica/i.test(subName);
+          const newSub: Subject = {
+            id: `sub_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+            name: subName,
+            shortName: subName.length > 8 ? subName.slice(0, 8) : subName,
+            color,
+            isHeavy,
+            area: isHeavy ? 'Exatas' : 'Geral',
+          };
+          existingSubjects.push(newSub);
+          foundSub = newSub;
+          createdSubjectsCount++;
+        }
+
+        if (foundSub && !assignedSubjectIds.includes(foundSub.id)) {
+          assignedSubjectIds.push(foundSub.id);
+        }
+      }
+
+      const newTeacher: Teacher = {
+        id: `tea_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        name: item.teacherName.trim(),
+        shortName: item.shortName?.trim() || item.teacherName.trim().split(' ')[0],
+        subjectIds: assignedSubjectIds,
+        allowedShift: item.allowedShift || 'all',
+        maxConsecutiveLessons: item.maxConsecutive || 3,
+        absences: [],
+        email: item.email?.trim(),
+      };
+
+      existingTeachers.push(newTeacher);
+      createdTeachersCount++;
+    }
+
+    updateActiveWeek({
+      subjects: existingSubjects,
+      teachers: existingTeachers,
+    });
+
+    return { createdTeachers: createdTeachersCount, createdSubjects: createdSubjectsCount };
   };
 
   // Configuration helper functions
@@ -1048,6 +1291,14 @@ export const ScheduleProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         canRedo: historyIndex < history.length - 1,
         undo,
         redo,
+        hasUnsavedTimesChanges,
+        setHasUnsavedTimesChanges,
+        pendingTabChange,
+        setPendingTabChange,
+        confirmTabChange,
+        registerSaveTimesCallback,
+        registerDiscardTimesCallback,
+        bulkAddTeachersAndSubjects,
         importData,
         resetAllToDefaults,
       }}

@@ -165,6 +165,12 @@ export const INITIAL_TIME_CONFIG: DayTimeConfig = {
   ],
   roundToFiveMinutes: true,
   useCustomLessonDuration: false,
+  hasLunch: true,
+  lunchDurationMinutes: 60,
+  lunchAfterLesson: 3,
+  hasDinner: false,
+  dinnerDurationMinutes: 50,
+  dinnerAfterLesson: 6,
 };
 
 export const INITIAL_RULES: ScheduleRule[] = [
@@ -268,6 +274,7 @@ export function createInitialSampleWeek(): WeekSchedule {
     grid: {},
     institutionName: 'Colégio & Curso Pré-Vestibular Alfa',
     shiftRanges: { ...DEFAULT_SHIFT_RANGES },
+    modality: 'presencial',
   };
 
   return sampleWeek;
@@ -278,6 +285,7 @@ export function createSecondarySampleWeek(): WeekSchedule {
   sample.id = 'week_2026_32';
   sample.title = 'Grade Anterior — Semana 32';
   sample.dateRange = '08/08/2026 a 14/08/2026';
+  sample.modality = 'presencial';
   return sample;
 }
 
@@ -304,5 +312,6 @@ export function createEmptySampleWeek(title: string = 'Nova Grade em Branco', da
     grid: {},
     institutionName: '',
     shiftRanges: { ...DEFAULT_SHIFT_RANGES },
+    modality: 'presencial',
   };
 }

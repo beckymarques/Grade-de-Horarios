@@ -18,6 +18,11 @@ import {
   Menu,
   X,
   Upload,
+  RotateCcw,
+  HelpCircle,
+  Laptop,
+  Globe,
+  Building2,
 } from 'lucide-react';
 import { useSchedule, ActiveTab } from '../context/ScheduleContext';
 import { SolverModal } from './SolverModal';
@@ -51,6 +56,9 @@ export const Header: React.FC<HeaderProps> = ({
     validation,
     createNewWeek,
     importData,
+    canUndo,
+    undo,
+    updateActiveWeek,
   } = useSchedule();
 
   const [showSolverModal, setShowSolverModal] = useState(false);
@@ -175,6 +183,49 @@ export const Header: React.FC<HeaderProps> = ({
               </select>
             </div>
 
+            {/* Week Modality Selector (Presencial, Remota, Híbrida) */}
+            <div className="flex items-center bg-slate-100 p-0.5 sm:p-1 rounded-lg border border-slate-200">
+              <span className="text-[11px] font-medium text-slate-500 px-1.5 flex items-center gap-1">
+                {activeWeek?.modality === 'remoto' ? (
+                  <Laptop className="w-3.5 h-3.5 text-sky-600" />
+                ) : activeWeek?.modality === 'hibrido' ? (
+                  <Globe className="w-3.5 h-3.5 text-purple-600" />
+                ) : (
+                  <Building2 className="w-3.5 h-3.5 text-slate-500" />
+                )}
+                <span className="hidden xl:inline">Modalidade:</span>
+              </span>
+              <select
+                id="select_week_modality"
+                value={activeWeek?.modality || 'presencial'}
+                onChange={(e) => updateActiveWeek({ modality: e.target.value as any })}
+                title="Define se as aulas desta semana são presenciais, remotas/online ou híbridas"
+                className={`text-xs font-bold rounded-md px-2 py-1 border shadow-xs focus:outline-hidden ${
+                  activeWeek?.modality === 'remoto'
+                    ? 'bg-sky-50 text-sky-800 border-sky-300'
+                    : activeWeek?.modality === 'hibrido'
+                    ? 'bg-purple-50 text-purple-800 border-purple-300'
+                    : 'bg-white text-slate-700 border-slate-300'
+                }`}
+              >
+                <option value="presencial">🏫 Presencial</option>
+                <option value="remoto">💻 Remota / Online</option>
+                <option value="hibrido">🌐 Híbrida</option>
+              </select>
+            </div>
+
+            {/* Undo Button */}
+            <button
+              id="btn_header_undo"
+              onClick={undo}
+              disabled={!canUndo}
+              title="Desfazer última alteração na grade (Ctrl+Z)"
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg border transition shadow-xs disabled:opacity-40 disabled:hover:bg-transparent bg-white border-slate-300 text-slate-700 hover:bg-slate-50 cursor-pointer"
+            >
+              <RotateCcw className="w-3.5 h-3.5 text-slate-600" />
+              <span className="hidden sm:inline">Desfazer</span>
+            </button>
+
             {/* Quick Duplicate Button */}
             <button
               id="btn_duplicate_week"
@@ -184,10 +235,10 @@ export const Header: React.FC<HeaderProps> = ({
                 setShowDuplicateModal(true);
               }}
               title="Duplicar esta semana para criar a próxima"
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition shadow-xs"
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition shadow-xs cursor-pointer"
             >
               <Copy className="w-3.5 h-3.5 text-slate-500" />
-              <span className="hidden lg:inline">Duplicar Semana</span>
+              <span className="hidden lg:inline">Duplicar</span>
             </button>
 
             {/* Layout Selector Button */}
@@ -195,18 +246,31 @@ export const Header: React.FC<HeaderProps> = ({
               id="btn_open_layout_modal"
               onClick={onOpenLayoutModal}
               title="Personalizar Layout Visual da Grade"
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition shadow-2xs"
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition shadow-2xs cursor-pointer"
             >
               <Palette className="w-3.5 h-3.5 text-indigo-600" />
               <span className="hidden sm:inline">Layout: {layoutThemeNames[layoutTheme] || 'Personalizado'}</span>
               <span className="sm:hidden">Layout</span>
             </button>
 
+            {/* Guided Tour / Help Button */}
+            {onOpenOnboarding && (
+              <button
+                id="btn_open_tour"
+                onClick={onOpenOnboarding}
+                title="Abrir Tour Guiado Explicativo das Funcionalidades"
+                className="inline-flex items-center gap-1 px-2 py-1.5 text-xs font-semibold text-amber-900 bg-amber-50 border border-amber-200 rounded-lg hover:bg-amber-100 transition shadow-2xs cursor-pointer"
+              >
+                <HelpCircle className="w-3.5 h-3.5 text-amber-600" />
+                <span className="hidden lg:inline">Tour Guiado</span>
+              </button>
+            )}
+
             {/* Generate Timetable Button */}
             <button
               id="btn_open_solver"
               onClick={onOpenSolver || (() => setShowSolverModal(true))}
-              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm transition active:scale-95"
+              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm transition active:scale-95 cursor-pointer"
             >
               <Sparkles className="w-3.5 h-3.5 text-amber-300" />
               <span>Gerar Grade</span>
@@ -216,7 +280,7 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               id="btn_open_export"
               onClick={onOpenExport || (() => setShowExportModal(true))}
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition shadow-xs"
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition shadow-xs cursor-pointer"
             >
               <Download className="w-3.5 h-3.5 text-indigo-600" />
               <span className="hidden sm:inline">Exportar</span>

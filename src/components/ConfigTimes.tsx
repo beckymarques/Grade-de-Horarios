@@ -32,18 +32,29 @@ import {
   DEFAULT_SHIFT_RANGES,
 } from '../types';
 import { calculateTimeSlots, formatMinutesToTime, parseTimeToMinutes } from '../utils/timeCalculator';
+import { TimesWizardModal } from './TimesWizardModal';
+import { Wand2, Save } from 'lucide-react';
 
 export const ConfigTimes: React.FC = () => {
-  const { activeWeek, updateTimeConfig, updateActiveWeek } = useSchedule();
+  const {
+    activeWeek,
+    updateTimeConfig,
+    updateActiveWeek,
+    setHasUnsavedTimesChanges,
+    registerSaveTimesCallback,
+    registerDiscardTimesCallback,
+  } = useSchedule();
 
   if (!activeWeek) return null;
 
+  const [showWizardModal, setShowWizardModal] = useState<boolean>(false);
   const [config, setConfig] = useState<DayTimeConfig>(activeWeek.timeConfig);
   const [activeDays, setActiveDays] = useState<DayOfWeek[]>(activeWeek.activeDays || ['SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SAB']);
   const [institutionName, setInstitutionName] = useState<string>(activeWeek.institutionName || '');
   const [shiftRanges, setShiftRanges] = useState<ShiftRangeConfig>(
     activeWeek.shiftRanges || { ...DEFAULT_SHIFT_RANGES }
   );
+  const [justSaved, setJustSaved] = useState<boolean>(false);
 
   // Sync state if active week changes
   useEffect(() => {
@@ -55,23 +66,60 @@ export const ConfigTimes: React.FC = () => {
     }
   }, [activeWeek?.id]);
 
-  // Ensure mandatory Lunch is always present in events
+  // Compute dirty state
+  const isDirty = React.useMemo(() => {
+    if (!activeWeek) return false;
+    const configChanged = JSON.stringify(config) !== JSON.stringify(activeWeek.timeConfig);
+    const daysChanged = JSON.stringify(activeDays) !== JSON.stringify(activeWeek.activeDays);
+    const instChanged = (institutionName || '') !== (activeWeek.institutionName || '');
+    const shiftsChanged =
+      JSON.stringify(shiftRanges) !== JSON.stringify(activeWeek.shiftRanges || DEFAULT_SHIFT_RANGES);
+    return configChanged || daysChanged || instChanged || shiftsChanged;
+  }, [config, activeDays, institutionName, shiftRanges, activeWeek]);
+
   useEffect(() => {
-    const hasLunch = config.events.some((e) => e.isLunch || e.name.toLowerCase().includes('almoço'));
-    if (!hasLunch) {
-      const lunchEvent: EventConfig = {
-        id: `evt_lunch_${Date.now()}`,
-        name: 'Almoço',
-        afterLessonNumber: Math.min(3, Math.max(1, Math.floor(config.targetLessonCount / 2))),
-        durationMinutes: 60,
-        isLunch: true,
-      };
-      setConfig((prev) => ({
-        ...prev,
-        events: [lunchEvent, ...prev.events],
-      }));
-    }
-  }, []);
+    setHasUnsavedTimesChanges(isDirty);
+  }, [isDirty, setHasUnsavedTimesChanges]);
+
+  // Register callbacks for the tab-switch guard
+  useEffect(() => {
+    registerSaveTimesCallback(() => {
+      updateTimeConfig(config);
+      updateActiveWeek({
+        activeDays,
+        institutionName,
+        shiftRanges,
+      });
+      setHasUnsavedTimesChanges(false);
+    });
+
+    registerDiscardTimesCallback(() => {
+      if (activeWeek) {
+        setConfig(activeWeek.timeConfig);
+        setActiveDays(activeWeek.activeDays || ['SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SAB']);
+        setInstitutionName(activeWeek.institutionName || '');
+        setShiftRanges(activeWeek.shiftRanges || { ...DEFAULT_SHIFT_RANGES });
+      }
+      setHasUnsavedTimesChanges(false);
+    });
+
+    return () => {
+      registerSaveTimesCallback(null);
+      registerDiscardTimesCallback(null);
+      setHasUnsavedTimesChanges(false);
+    };
+  }, [
+    config,
+    activeDays,
+    institutionName,
+    shiftRanges,
+    activeWeek,
+    updateTimeConfig,
+    updateActiveWeek,
+    registerSaveTimesCallback,
+    registerDiscardTimesCallback,
+    setHasUnsavedTimesChanges,
+  ]);
 
   // Live calculation results
   const calcResult = calculateTimeSlots(config);
@@ -83,6 +131,9 @@ export const ConfigTimes: React.FC = () => {
       institutionName,
       shiftRanges,
     });
+    setHasUnsavedTimesChanges(false);
+    setJustSaved(true);
+    setTimeout(() => setJustSaved(false), 2500);
   };
 
   const handleToggleDay = (day: DayOfWeek) => {
@@ -154,12 +205,41 @@ export const ConfigTimes: React.FC = () => {
     });
   };
 
+  const handleAddLunch = () => {
+    const hasLunchEvent = config.events.some((e) => e.isLunch || e.name.toLowerCase().includes('almoço'));
+    if (hasLunchEvent) return;
+    const lunchEvent: EventConfig = {
+      id: `evt_lunch_${Date.now()}`,
+      name: 'Almoço',
+      afterLessonNumber: Math.min(3, Math.max(1, Math.floor(config.targetLessonCount / 2))),
+      durationMinutes: 60,
+      isLunch: true,
+      isEnabled: true,
+    };
+    setConfig({
+      ...config,
+      events: [...config.events, lunchEvent],
+    });
+  };
+
+  const handleAddDinner = () => {
+    const hasDinnerEvent = config.events.some((e) => e.isDinner || e.name.toLowerCase().includes('jantar'));
+    if (hasDinnerEvent) return;
+    const dinnerEvent: EventConfig = {
+      id: `evt_dinner_${Date.now()}`,
+      name: 'Jantar',
+      afterLessonNumber: Math.min(6, config.targetLessonCount),
+      durationMinutes: 45,
+      isDinner: true,
+      isEnabled: true,
+    };
+    setConfig({
+      ...config,
+      events: [...config.events, dinnerEvent],
+    });
+  };
+
   const handleRemoveEvent = (id: string) => {
-    const target = config.events.find((e) => e.id === id);
-    if (target && (target.isLunch || target.name.toLowerCase().includes('almoço'))) {
-      alert('A existência do almoço é obrigatória na grade de horários. Você pode ajustar sua duração e a posição em que ocorre, mas não removê-lo.');
-      return;
-    }
     setConfig({
       ...config,
       events: config.events.filter((e) => e.id !== id),
@@ -211,6 +291,34 @@ export const ConfigTimes: React.FC = () => {
   return (
     <div className="max-w-5xl mx-auto space-y-6">
       
+      {/* Wizard Promotion Banner */}
+      <div className="bg-gradient-to-r from-indigo-900 via-indigo-800 to-slate-900 text-white p-5 rounded-3xl shadow-md border border-indigo-700/50 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex items-start gap-3.5">
+          <div className="p-3 bg-white/10 text-amber-300 rounded-2xl border border-white/10 shrink-0">
+            <Wand2 className="w-6 h-6 text-amber-300" />
+          </div>
+          <div>
+            <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-amber-400/20 text-amber-300 text-[10px] font-bold uppercase tracking-wider mb-1">
+              ✨ Assistente Inteligente Passo a Passo
+            </div>
+            <h3 className="text-base font-bold text-white tracking-tight">
+              Configurar Horários com o Assistente (Wizard)
+            </h3>
+            <p className="text-xs text-indigo-100 mt-0.5 leading-relaxed max-w-xl">
+              Não quer ajustar campo a campo? O assistente orienta você em 4 passos rápidos para definir turnos, aulas, <strong>almoço</strong> e <strong>jantar (ambos opcionais)</strong>.
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => setShowWizardModal(true)}
+          className="inline-flex items-center justify-center gap-2 px-5 py-2.5 text-xs font-bold text-slate-900 bg-amber-400 hover:bg-amber-300 rounded-xl shadow-sm transition active:scale-95 shrink-0 cursor-pointer"
+        >
+          <Wand2 className="w-4 h-4 text-slate-900" />
+          <span>Abrir Assistente de Horários</span>
+        </button>
+      </div>
+
       {/* Header Banner */}
       <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -223,18 +331,34 @@ export const ConfigTimes: React.FC = () => {
             </h2>
           </div>
           <p className="text-xs text-slate-500 mt-1">
-            Defina a quantidade de dias na semana (ex: cursinho de 1 dia aos sábados), horários de início e fim, intervalos e eventos.
+            Defina a quantidade de dias na semana, horários de início e fim, intervalos e refeições opcionais.
           </p>
         </div>
 
-        <button
-          id="btn_save_time_config"
-          onClick={handleApply}
-          className="inline-flex items-center justify-center gap-2 px-5 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-xs transition active:scale-95"
-        >
-          <Sparkles className="w-4 h-4 text-amber-300" />
-          Aplicar à Grade Semanal
-        </button>
+        <div className="flex items-center gap-2">
+          {isDirty && (
+            <span className="text-[11px] font-semibold text-amber-700 bg-amber-50 border border-amber-300 px-2.5 py-1 rounded-lg animate-pulse">
+              ⚠️ Alterações não salvas
+            </span>
+          )}
+          {justSaved && (
+            <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-300 px-2.5 py-1 rounded-lg flex items-center gap-1">
+              <CheckCircle2 className="w-3.5 h-3.5" /> Salvo com sucesso!
+            </span>
+          )}
+          <button
+            id="btn_save_time_config"
+            onClick={handleApply}
+            className={`inline-flex items-center justify-center gap-2 px-5 py-2.5 text-xs font-semibold rounded-xl shadow-xs transition active:scale-95 cursor-pointer ${
+              isDirty
+                ? 'bg-emerald-600 hover:bg-emerald-700 text-white ring-2 ring-emerald-400 ring-offset-1 font-bold'
+                : 'bg-indigo-600 hover:bg-indigo-700 text-white'
+            }`}
+          >
+            <Sparkles className="w-4 h-4 text-amber-300" />
+            <span>Salvar e Aplicar na Grade</span>
+          </button>
+        </div>
       </div>
 
       {/* INSTITUTION & SHIFT RANGES CARD */}
@@ -816,35 +940,55 @@ export const ConfigTimes: React.FC = () => {
             )}
           </div>
 
-          {/* Events / Lunch / Orientação Block */}
+          {/* Events / Lunch / Dinner Block */}
           <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
               <div>
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-600">
-                  3. Eventos & Almoço / Orientação
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                  3. Refeições (Almoço / Jantar) & Eventos Especiais
                 </h3>
                 <p className="text-[11px] text-slate-500">
-                  Blocos especiais no horário (Almoço, Orientação Acadêmica, Plantão). Reordene a sequência se desejar.
+                  Almoço e Jantar são opcionais (habilite apenas se sua escola tiver refeições).
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={handleAddEvent}
-                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                Adicionar Evento
-              </button>
+
+              <div className="flex flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={handleAddLunch}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg transition cursor-pointer"
+                >
+                  <Utensils className="w-3.5 h-3.5 text-amber-600" />
+                  + Almoço
+                </button>
+                <button
+                  type="button"
+                  onClick={handleAddDinner}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition cursor-pointer"
+                >
+                  <Moon className="w-3.5 h-3.5 text-indigo-600" />
+                  + Jantar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleAddEvent}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Outro Evento
+                </button>
+              </div>
             </div>
 
             {config.events.length === 0 ? (
-              <div className="p-4 rounded-xl border border-dashed border-slate-200 text-center text-xs text-slate-400">
-                Nenhum evento extra cadastrado.
+              <div className="p-4 rounded-xl border border-dashed border-slate-200 text-center text-xs text-slate-500 bg-slate-50">
+                Nenhum almoço, jantar ou evento cadastrado. (Ideal para turnos únicos que não servem refeição).
               </div>
             ) : (
               <div className="space-y-3">
                 {config.events.map((event, idx) => {
                   const isLunchEvent = event.isLunch || event.name.toLowerCase().includes('almoço');
+                  const isDinnerEvent = event.isDinner || event.name.toLowerCase().includes('jantar');
 
                   return (
                     <div
@@ -852,6 +996,8 @@ export const ConfigTimes: React.FC = () => {
                       className={`p-3 rounded-xl grid grid-cols-1 sm:grid-cols-12 gap-2 items-center ${
                         isLunchEvent
                           ? 'bg-amber-50/70 border border-amber-300'
+                          : isDinnerEvent
+                          ? 'bg-indigo-50/70 border border-indigo-300'
                           : 'bg-blue-50/50 border border-blue-200'
                       }`}
                     >
@@ -884,12 +1030,15 @@ export const ConfigTimes: React.FC = () => {
                           className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-white font-medium"
                         />
                         {isLunchEvent && (
-                          <span
-                            title="A existência do almoço é obrigatória"
-                            className="inline-flex items-center gap-0.5 text-[10px] bg-amber-200 text-amber-900 font-bold px-1.5 py-0.5 rounded whitespace-nowrap"
-                          >
+                          <span className="inline-flex items-center gap-0.5 text-[10px] bg-amber-200 text-amber-900 font-bold px-1.5 py-0.5 rounded whitespace-nowrap">
                             <Utensils className="w-3 h-3" />
-                            Obrigatório
+                            Almoço
+                          </span>
+                        )}
+                        {isDinnerEvent && (
+                          <span className="inline-flex items-center gap-0.5 text-[10px] bg-indigo-200 text-indigo-900 font-bold px-1.5 py-0.5 rounded whitespace-nowrap">
+                            <Moon className="w-3 h-3" />
+                            Jantar
                           </span>
                         )}
                       </div>
@@ -927,22 +1076,13 @@ export const ConfigTimes: React.FC = () => {
                         <span className="text-xs text-slate-500 font-medium">min</span>
                       </div>
                       <div className="sm:col-span-1 text-right">
-                        {isLunchEvent ? (
-                          <span
-                            title="O almoço é obrigatório e não pode ser excluído"
-                            className="inline-block p-1.5 text-amber-600 bg-amber-100/70 rounded-lg cursor-not-allowed"
-                          >
-                            <Lock className="w-3.5 h-3.5" />
-                          </span>
-                        ) : (
-                          <button
-                            onClick={() => handleRemoveEvent(event.id)}
-                            className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg transition"
-                            title="Excluir evento"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        )}
+                        <button
+                          onClick={() => handleRemoveEvent(event.id)}
+                          className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+                          title="Excluir evento/refeição"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
                     </div>
                   );
@@ -974,7 +1114,11 @@ export const ConfigTimes: React.FC = () => {
                       isInterval
                         ? 'bg-amber-50 border-amber-200 text-amber-900 font-semibold'
                         : isEvent
-                        ? 'bg-blue-50 border-blue-200 text-blue-900 font-semibold'
+                        ? slot.name.toLowerCase().includes('almoço')
+                          ? 'bg-amber-100/70 border-amber-300 text-amber-950 font-bold'
+                          : slot.name.toLowerCase().includes('jantar')
+                          ? 'bg-indigo-100/70 border-indigo-300 text-indigo-950 font-bold'
+                          : 'bg-blue-50 border-blue-200 text-blue-900 font-semibold'
                         : 'bg-white border-slate-200 text-slate-800 hover:border-indigo-300'
                     }`}
                   >
@@ -1011,6 +1155,11 @@ export const ConfigTimes: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Times Wizard Step-by-Step Modal */}
+      {showWizardModal && (
+        <TimesWizardModal onClose={() => setShowWizardModal(false)} />
+      )}
     </div>
   );
 };

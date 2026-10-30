@@ -12,7 +12,8 @@ import { SolverModal } from './components/SolverModal';
 import { ExportModal } from './components/ExportModal';
 import { ConflictDrawer } from './components/ConflictDrawer';
 import { LayoutSelectorModal } from './components/LayoutSelectorModal';
-import { WelcomeOnboardingModal } from './components/WelcomeOnboardingModal';
+import { WelcomeTourModal } from './components/WelcomeTourModal';
+import { UnsavedTimesModal } from './components/UnsavedTimesModal';
 
 const MainAppContent: React.FC = () => {
   const { activeTab, layoutTheme, setLayoutTheme } = useSchedule();
@@ -20,11 +21,14 @@ const MainAppContent: React.FC = () => {
   const [showExportModal, setShowExportModal] = useState(false);
   const [showConflictsDrawer, setShowConflictsDrawer] = useState(false);
   const [showWelcomeModal, setShowWelcomeModal] = useState<boolean>(() => {
-    return !localStorage.getItem('prevest_has_onboarded_v1');
+    return !localStorage.getItem('prevest_has_completed_tour_v2') && !localStorage.getItem('prevest_has_onboarded_v1');
   });
   const [showLayoutModal, setShowLayoutModal] = useState<boolean>(() => {
     // If onboarding hasn't happened, let onboarding happen first
-    return !!localStorage.getItem('prevest_has_onboarded_v1') && !localStorage.getItem('prevest_has_chosen_layout_v1');
+    return (
+      (!!localStorage.getItem('prevest_has_completed_tour_v2') || !!localStorage.getItem('prevest_has_onboarded_v1')) &&
+      !localStorage.getItem('prevest_has_chosen_layout_v1')
+    );
   });
 
   return (
@@ -56,16 +60,19 @@ const MainAppContent: React.FC = () => {
         {activeTab === 'semanas' && <WeeksList />}
       </main>
 
-      {/* Welcome / Onboarding Modal */}
+      {/* Unsaved Times Warning Modal */}
+      <UnsavedTimesModal />
+
+      {/* Guided Welcome Tour Modal */}
       {showWelcomeModal && (
-        <WelcomeOnboardingModal
+        <WelcomeTourModal
           onClose={() => {
             setShowWelcomeModal(false);
             if (!localStorage.getItem('prevest_has_chosen_layout_v1')) {
               setShowLayoutModal(true);
             }
           }}
-          isFirstTime={!localStorage.getItem('prevest_has_onboarded_v1')}
+          isFirstTime={!localStorage.getItem('prevest_has_completed_tour_v2')}
         />
       )}
 

@@ -69,10 +69,12 @@ export interface IntervalConfig {
 
 export interface EventConfig {
   id: string;
-  name: string; // "Almoço", "Orientação Acadêmica"
+  name: string; // "Almoço", "Jantar", "Orientação Acadêmica"
   afterLessonNumber: number; // e.g. after lesson 6
   durationMinutes: number;
-  isLunch?: boolean; // Indicates the mandatory lunch event
+  isLunch?: boolean; // Indicates lunch event
+  isDinner?: boolean; // Indicates dinner event
+  isEnabled?: boolean; // Can be toggled on/off
 }
 
 export interface DayTimeConfig {
@@ -84,6 +86,12 @@ export interface DayTimeConfig {
   roundToFiveMinutes: boolean; // true = only :00, :05, :10, etc.
   useCustomLessonDuration?: boolean; // When true, fix lesson duration explicitly
   customLessonDuration?: number; // Custom lesson duration in minutes
+  hasLunch?: boolean; // Indicates if lunch is active
+  lunchDurationMinutes?: number;
+  lunchAfterLesson?: number;
+  hasDinner?: boolean; // Indicates if dinner is active
+  dinnerDurationMinutes?: number;
+  dinnerAfterLesson?: number;
 }
 
 export interface ClassGroup {
@@ -267,6 +275,8 @@ export interface WeekSchedule {
   grid: Record<string, GridCell>; // key = `${day}_${slotId}_${classId}`
   institutionName?: string; // Nome da Escola / Cursinho / Projeto
   shiftRanges?: ShiftRangeConfig; // Faixas de turnos (manhã, tarde, noite)
+  modality?: 'presencial' | 'remoto' | 'hibrido'; // Modalidade da semana
+  remotePlatform?: string; // e.g. "Google Meet", "Zoom", "Teams", "Plataforma EAD"
   notes?: string;
 }
 

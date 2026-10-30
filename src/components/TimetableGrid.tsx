@@ -30,6 +30,8 @@ import {
   Columns3,
   SlidersHorizontal,
   Palette,
+  Laptop,
+  Globe,
 } from 'lucide-react';
 
 interface TimetableGridProps {
@@ -309,22 +311,93 @@ export const TimetableGrid: React.FC<TimetableGridProps> = ({
             <button
               onClick={undo}
               disabled={!canUndo}
-              title="Desfazer última alteração"
-              className="p-1.5 text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-transparent rounded-lg border border-slate-200"
+              title="Desfazer última alteração (Ctrl+Z)"
+              className="p-1.5 text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-transparent rounded-lg border border-slate-200 cursor-pointer"
             >
               <RotateCcw className="w-4 h-4" />
             </button>
             <button
               onClick={redo}
               disabled={!canRedo}
-              title="Refazer alteração"
-              className="p-1.5 text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-transparent rounded-lg border border-slate-200"
+              title="Refazer alteração (Ctrl+Y)"
+              className="p-1.5 text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-transparent rounded-lg border border-slate-200 cursor-pointer"
             >
               <RotateCw className="w-4 h-4" />
             </button>
           </div>
+
+          {/* Direct Generate Timetable Button in Grid Toolbar */}
+          <button
+            onClick={onOpenSolver}
+            id="btn_grid_toolbar_solver"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-xs transition active:scale-95 cursor-pointer"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+            <span>Gerar Grade</span>
+          </button>
         </div>
       </div>
+
+      {/* Remote / Hybrid Modality Notice Banner */}
+      {activeWeek.modality && activeWeek.modality !== 'presencial' && (
+        <div
+          className={`p-4 rounded-2xl border flex items-center justify-between gap-3 text-xs shadow-xs animate-in fade-in ${
+            activeWeek.modality === 'remoto'
+              ? 'bg-sky-50 border-sky-200 text-sky-950'
+              : 'bg-purple-50 border-purple-200 text-purple-950'
+          }`}
+        >
+          <div className="flex items-center gap-2.5">
+            <div
+              className={`p-2 rounded-xl text-white ${
+                activeWeek.modality === 'remoto' ? 'bg-sky-600' : 'bg-purple-600'
+              }`}
+            >
+              <Laptop className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="font-bold flex items-center gap-1.5">
+                <span>
+                  {activeWeek.modality === 'remoto'
+                    ? '📡 Semana de Aulas 100% Remotas (Online / EAD)'
+                    : '🌐 Semana de Aulas em Formato Híbrido'}
+                </span>
+                <span className="text-[10px] bg-white/80 px-2 py-0.5 rounded-full font-semibold border border-current">
+                  {activeWeek.title}
+                </span>
+              </div>
+              <p className="text-[11px] opacity-80 mt-0.5">
+                As turmas desta semana ocorrem por transmissão digital/online. As outras semanas não são afetadas e permanecem no formato configurado.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Empty Schedule Call-to-Action Banner */}
+      {!(Object.values(activeWeek.grid || {}) as (GridCell | undefined)[]).some((c) => c?.subjectId) && (
+        <div className="p-6 bg-gradient-to-r from-indigo-50 via-white to-indigo-50 border-2 border-dashed border-indigo-200 rounded-3xl text-center space-y-3">
+          <div className="w-12 h-12 mx-auto rounded-2xl bg-indigo-100 text-indigo-700 flex items-center justify-center shadow-xs">
+            <Sparkles className="w-6 h-6 text-amber-500" />
+          </div>
+          <div>
+            <h3 className="text-sm font-bold text-indigo-950">
+              Grade Semanal Pronta para Ser Gerada!
+            </h3>
+            <p className="text-xs text-slate-500 max-w-md mx-auto mt-1">
+              Você ainda não preencheu esta semana. Clique no botão abaixo para que o gerador inteligente aloque automaticamente todas as aulas e professores.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onOpenSolver}
+            className="inline-flex items-center gap-2 px-5 py-2.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-md hover:shadow-lg transition active:scale-95 cursor-pointer"
+          >
+            <Sparkles className="w-4 h-4 text-amber-300" />
+            <span>Gerar Grade Automaticamente Agora</span>
+          </button>
+        </div>
+      )}
 
       {/* Main Grid View according to Layout Theme */}
       <div id="exportable_grid_view" className="space-y-6">
