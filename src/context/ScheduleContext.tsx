@@ -12,6 +12,7 @@ import {
   WeekSchedule,
   TimetableLayoutTheme,
   DuplicateWeekOptions,
+  DEFAULT_SHIFT_RANGES,
 } from '../types';
 import {
   createInitialSampleWeek,
@@ -245,7 +246,8 @@ export const ScheduleProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       primary.teachers,
       primary.rules,
       primary.loads,
-      {}
+      {},
+      primary.shiftRanges || DEFAULT_SHIFT_RANGES
     );
     primary.grid = preSolved.grid;
 
@@ -399,7 +401,8 @@ export const ScheduleProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       activeWeek.subjects,
       activeWeek.teachers,
       activeWeek.rules,
-      activeWeek.loads
+      activeWeek.loads,
+      activeWeek.shiftRanges || DEFAULT_SHIFT_RANGES
     );
   }, [activeWeek]);
 
@@ -935,7 +938,8 @@ export const ScheduleProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       activeWeek.teachers,
       activeWeek.rules,
       effectiveLoads,
-      activeWeek.grid
+      activeWeek.grid,
+      activeWeek.shiftRanges || DEFAULT_SHIFT_RANGES
     );
 
     setLastSolverResult(result);
@@ -1210,7 +1214,8 @@ export const ScheduleProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       sample.teachers,
       sample.rules,
       sample.loads,
-      {}
+      {},
+      sample.shiftRanges || DEFAULT_SHIFT_RANGES
     );
     sample.grid = preSolved.grid;
     const secondary = createSecondarySampleWeek();

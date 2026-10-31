@@ -82,9 +82,9 @@ function createExportableScheduleElement(
   daysToRender?: DayOfWeek[],
   options?: ExportFilterOptions
 ): HTMLElement {
-  const { title, dateRange, activeDays, generatedSlots, classes, subjects, teachers, loads, rules, grid, institutionName } = week;
+  const { title, dateRange, activeDays, generatedSlots, classes, subjects, teachers, loads, rules, grid, institutionName, shiftRanges } = week;
   const targetDays = daysToRender && daysToRender.length > 0 ? daysToRender : activeDays;
-  const validation = validateSchedule(grid, activeDays, generatedSlots, classes, subjects, teachers, rules, loads);
+  const validation = validateSchedule(grid, activeDays, generatedSlots, classes, subjects, teachers, rules, loads, shiftRanges);
   const subjectMap = new Map(subjects.map((s) => [s.id, s]));
   const teacherMap = new Map(teachers.map((t) => [t.id, t]));
   const displayClasses = getDisplayClasses(classes);
@@ -460,8 +460,8 @@ function createExportableScheduleElement(
  * Builds an XLSX workbook for a specific list of days
  */
 function buildWorkbookForDays(week: WeekSchedule, days: DayOfWeek[], options?: ExportFilterOptions): XLSX.WorkBook {
-  const { title, activeDays, generatedSlots, classes, subjects, teachers, loads, rules, grid, institutionName } = week;
-  const validation = validateSchedule(grid, activeDays, generatedSlots, classes, subjects, teachers, rules, loads);
+  const { title, activeDays, generatedSlots, classes, subjects, teachers, loads, rules, grid, institutionName, shiftRanges } = week;
+  const validation = validateSchedule(grid, activeDays, generatedSlots, classes, subjects, teachers, rules, loads, shiftRanges);
   const subjectMap = new Map(subjects.map((s) => [s.id, s]));
   const teacherMap = new Map(teachers.map((t) => [t.id, t]));
   const displayClasses = getDisplayClasses(classes);

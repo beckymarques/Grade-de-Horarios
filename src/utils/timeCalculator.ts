@@ -1,4 +1,4 @@
-import { DayTimeConfig, TimeSlot } from '../types';
+import { DayTimeConfig, TimeSlot, ShiftRanges, DEFAULT_SHIFT_RANGES } from '../types';
 
 export interface TimeCalculationResult {
   slots: TimeSlot[];
@@ -146,20 +146,22 @@ export function calculateTimeSlots(config: DayTimeConfig): TimeCalculationResult
  */
 export function getSlotShift(
   slot: TimeSlot,
-  shiftRanges?: {
-    morningEnd?: string;
-    afternoonEnd?: string;
-  }
+  shiftRanges?:
+    | ShiftRanges
+    | {
+        morningEnd?: string;
+        afternoonEnd?: string;
+      }
 ): 'morning' | 'afternoon' | 'night' {
   const startMin = parseTimeToMinutes(slot.startTime);
 
   const morningEndMin = shiftRanges?.morningEnd
     ? parseTimeToMinutes(shiftRanges.morningEnd)
-    : parseTimeToMinutes('12:30'); // Default 12:30
+    : parseTimeToMinutes(DEFAULT_SHIFT_RANGES.morningEnd); // 12:30
 
   const afternoonEndMin = shiftRanges?.afternoonEnd
     ? parseTimeToMinutes(shiftRanges.afternoonEnd)
-    : parseTimeToMinutes('18:00'); // Default 18:00
+    : parseTimeToMinutes(DEFAULT_SHIFT_RANGES.afternoonEnd); // 18:00
 
   if (startMin < morningEndMin) {
     return 'morning';

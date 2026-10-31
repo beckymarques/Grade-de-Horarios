@@ -11,6 +11,8 @@ import {
   ClassGroup,
   SubjectLoad,
   getDisplayClasses,
+  ShiftRanges,
+  DEFAULT_SHIFT_RANGES,
 } from '../types';
 import { getSlotShift, isShiftAllowedForTeacher } from './timeCalculator';
 
@@ -107,8 +109,10 @@ export function validateSchedule(
   subjects: Subject[],
   teachers: Teacher[],
   rules: ScheduleRule[],
-  loads: SubjectLoad[]
+  loads: SubjectLoad[],
+  shiftRanges?: ShiftRanges
 ): ValidationReport {
+  const effectiveShiftRanges = shiftRanges || DEFAULT_SHIFT_RANGES;
   const conflicts: ScheduleConflict[] = [];
   const lessonSlots = slots.filter((s) => s.type === 'lesson');
   const displayClasses = getDisplayClasses(classes);
@@ -244,7 +248,7 @@ export function validateSchedule(
         if (!cell.teacherId) continue;
         const teacher = teacherMap.get(cell.teacherId);
         if (teacher && teacher.allowedShift && teacher.allowedShift !== 'all') {
-          const slotShift = getSlotShift(slot);
+          const slotShift = getSlotShift(slot, effectiveShiftRanges);
           if (!isShiftAllowedForTeacher(slotShift, teacher.allowedShift)) {
             const shiftLabels: Record<string, string> = {
               morning: 'Manhã',

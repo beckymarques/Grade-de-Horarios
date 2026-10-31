@@ -2,17 +2,19 @@ export interface ShiftRangeConfig {
   morningStart: string; // "06:00"
   morningEnd: string; // "12:30"
   afternoonStart: string; // "12:30"
-  afternoonEnd: string; // "18:30"
-  nightStart: string; // "18:30"
+  afternoonEnd: string; // "18:00"
+  nightStart: string; // "18:00"
   nightEnd: string; // "23:00"
 }
+
+export type ShiftRanges = ShiftRangeConfig;
 
 export const DEFAULT_SHIFT_RANGES: ShiftRangeConfig = {
   morningStart: '06:00',
   morningEnd: '12:30',
   afternoonStart: '12:30',
-  afternoonEnd: '18:30',
-  nightStart: '18:30',
+  afternoonEnd: '18:00',
+  nightStart: '18:00',
   nightEnd: '23:00',
 };
 

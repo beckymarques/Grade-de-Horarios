@@ -1,8 +1,10 @@
 import {
   ClassGroup,
   DayOfWeek,
+  DEFAULT_SHIFT_RANGES,
   GridCell,
   ScheduleRule,
+  ShiftRanges,
   Subject,
   SubjectLoad,
   Teacher,
@@ -38,8 +40,10 @@ export function generateScheduleWithSolver(
   teachers: Teacher[],
   rules: ScheduleRule[],
   loads: SubjectLoad[],
-  existingGrid: Record<string, GridCell> = {}
+  existingGrid: Record<string, GridCell> = {},
+  shiftRanges?: ShiftRanges
 ): SolverResult {
+  const effectiveShiftRanges = shiftRanges || DEFAULT_SHIFT_RANGES;
   const startTime = performance.now();
   const lessonSlots = slots.filter((s) => s.type === 'lesson');
 
@@ -269,7 +273,7 @@ export function generateScheduleWithSolver(
 
     // 1.1 HARD PHYSICAL LAW: Teacher Shift Limitation (NEVER RELAXED)
     if (teacher.allowedShift && teacher.allowedShift !== 'all') {
-      const slotShift = getSlotShift(slot);
+      const slotShift = getSlotShift(slot, effectiveShiftRanges);
       if (!isShiftAllowedForTeacher(slotShift, teacher.allowedShift)) {
         return {
           valid: false,
